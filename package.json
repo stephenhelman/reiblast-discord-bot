@@ -13,6 +13,7 @@
     "register-commands": "node --env-file=.env dist/discord/register-commands.js",
     "typecheck": "tsc --noEmit",
     "kb:check": "tsx src/kb/cli.ts",
+    "eval:qa": "tsx --env-file=.env eval/qa-eval.ts",
     "list-forum-tags": "tsx --env-file=.env src/discord/list-forum-tags.ts",
     "test": "vitest run"
   },

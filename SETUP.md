@@ -244,6 +244,10 @@ the switch and updating the production server's `DISCORD_BOT_INBOUND_SECRET` to 
 
 ---
 
+## After any KB or Q&A rules edit
+
+Run `npm run kb:check`, then `npm run eval:qa` (real API, about $0.05; needs `ANTHROPIC_API_KEY` in `.env`) and review the table **before deploying**.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
