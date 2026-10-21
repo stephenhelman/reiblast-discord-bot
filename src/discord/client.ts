@@ -3,10 +3,19 @@ import { createLogger } from "../logger.js";
 
 const log = createLogger("discord");
 
-/** Intents for this phase only: Guilds + GuildMembers (privileged — enable in the Developer Portal). No Message Content. */
+/**
+ * Intents: Guilds, GuildMembers (privileged — role grants), GuildMessages and MessageContent (privileged — the Q&A feature
+ * reads questions). The client-wide allowedMentions default is a safety net: nothing pings unless a message explicitly asks.
+ */
 export function createDiscordClient(): Client {
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+    allowedMentions: { parse: [] },
   });
 
   client.once("clientReady", (c) => log.info("gateway ready", { guilds: c.guilds.cache.size }));

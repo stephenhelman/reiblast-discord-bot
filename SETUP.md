@@ -35,7 +35,8 @@ Nothing here puts a secret in a file that gets committed. `.env` is git-ignored;
    - **Reset Token** → copy it once → `DISCORD_BOT_TOKEN`. (If it ever leaks, reset it here and update Railway.)
    - **Privileged Gateway Intents:**
      - **Server Members Intent: ON** (required — the bot looks up members to grant/revoke the role).
-     - **Message Content Intent: OFF** (not needed until Q&A is built).
+     - **Message Content Intent: ON** (required — the Q&A feature reads members' questions. Without it Discord refuses the
+       login with "Used disallowed intents", so the bot won't start.)
      - Presence Intent: OFF.
 3. **Public Bot** toggle — see step 7. For the test server you can leave it as is; for the partner's server it matters.
 
@@ -71,16 +72,65 @@ Create a fresh server you own, then:
 
 1. Build the invite URL (replace `APP_ID`):
    ```
-   https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot%20applications.commands&permissions=268454912
+   https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot%20applications.commands&permissions=361045904384
    ```
    - Scopes: `bot` and `applications.commands` (the second is required for the slash command).
-   - `268454912` = **Manage Roles** + View Channel + Send Messages + Embed Links. Nothing else.
+   - `361045904384` = **Manage Roles** (grant/remove the REIblast role) + **View Channel** + **Send Messages** + **Embed Links** +
+     **Read Message History** + **Manage Threads** (change a forum post's tags; archive and lock private threads) +
+     **Create Private Threads** + **Send Messages in Threads** (answers in forum posts and in private threads) +
+     **Mention Everyone** (the bot must hold this to ping the support role if that role isn't set mentionable; the bot's
+     messages are otherwise locked to `allowedMentions: { parse: [] }`, so it can never ping @everyone or anyone else).
+   - Already invited the bot earlier (it only had Manage Roles + the three basics)? Open this new URL again to update its
+     permissions, or tick the same permissions on the bot's role by hand.
 2. Open it, pick your test server, authorize.
 3. **Server Settings → Roles:** the bot got its own role (named after the bot). **Drag it above the `REIblast` role.** Discord
    only lets a bot manage roles *below* its own highest role. If it's below, every grant fails with Missing Permissions and
    staff get a `role_missing_permissions` alert.
 4. Members whose highest role is above the bot's (you as owner, admins) can never be modified by the bot. That's expected; test
    with a non-admin account if you need to see a real revoke (see step 5).
+
+---
+
+## 3b. Support Q&A: forum, Support channel, roles
+
+The bot answers questions from the knowledge base in `kb/` (see [docs/qa-live-test.md](docs/qa-live-test.md) for the manual test
+checklist). It needs a support **forum**, a locked **Support** channel for private threads, and a **support role**.
+
+**Support forum**
+1. Server Settings → **Enable Community** if it isn't already (forum channels need it). Create a **Forum** channel.
+2. Add three tags: **Support**, **Resolved**, **Needs Staff**. (You may make Resolved and Needs Staff moderator-only; the bot has
+   Manage Threads and can still apply them.)
+3. Copy the forum's channel ID → `DISCORD_SUPPORT_FORUM_ID`, put your bot token in `.env` too, then print the tag IDs:
+   ```bash
+   npm run list-forum-tags     # prints  <tag name>  <tag ID>  per line, then exits
+   ```
+   → `DISCORD_TAG_SUPPORT_ID`, `DISCORD_TAG_RESOLVED_ID`, `DISCORD_TAG_NEEDS_STAFF_ID`. (This is the only place IDs are ever printed.)
+4. Forum permissions: members — View Channel, Create Posts, Send Messages in Posts, Read Message History. The bot — View Channel,
+   Send Messages in Posts, Read Message History, **Manage Threads**.
+
+**Support channel** (the private-thread parent; a plain text channel — keep your pinned how-to video and instructions in it)
+- Copy its ID → `DISCORD_SUPPORT_CHANNEL_ID`.
+- Members (the REIblast role): **View Channel ✓, Read Message History ✓, Send Messages in Threads ✓**, and **Send Messages ✗,
+  Create Public Threads ✗, Create Private Threads ✗**. They can view the channel and reply inside threads they're added to, but
+  can't post top-level or start threads.
+- Support role: **View Channel ✓, Send Messages in Threads ✓, Manage Threads ✓**. Discord only shows private threads to people who
+  were added **or** hold Manage Threads, so this is what lets staff see and close every private thread.
+- Bot: **View Channel, Create Private Threads, Send Messages in Threads, Manage Threads, Read Message History**. It never posts
+  top-level here and never touches the pins; it only creates threads under it.
+
+**Support role**
+- Copy its ID → `DISCORD_SUPPORT_ROLE_ID`. It is pinged on escalations (and in each private thread's first message). The ping only
+  works if the bot holds **Mention Everyone** (included in the invite integer above) or the role is mentionable.
+- Members of the **staff role** or the **support role** can use the staff buttons (Move to private, Close).
+
+**Check it**
+1. `npm run kb:check` → `kb ok: 250 entries …`.
+2. Start the bot. The log shows `setup check passed`, or `setup check found problems problems=…` with static codes (and a
+   `qa_misconfigured` alert in the staff log): `tag_*_not_in_forum` (wrong tag ID), `forum_missing_*` / `support_channel_missing_*`
+   (a permission above), `support_role_not_pingable`, `*_not_found` / `*_wrong_type` (wrong channel or role ID).
+3. Optional but recommended on the **test server only**: `npm run verify-private-threads` (creates one private thread under the
+   Support channel, checks Discord's behavior, deletes it). After any KB or rules edit run `npm run eval:qa` (see the end of this file).
+4. Walk through [docs/qa-live-test.md](docs/qa-live-test.md).
 
 ---
 
@@ -150,7 +200,9 @@ npm run dev                 # tsx watch, loads .env
 `.env` needs (names only; see `.env.example` for the full list and comments):
 `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_GUILD_ID`, `DISCORD_REIBLAST_ROLE_ID`, `DISCORD_VERIFY_CHANNEL_ID`,
 `DISCORD_STAFF_ROLE_ID`, `DISCORD_STAFF_LOG_CHANNEL_ID`, `REIBLAST_SERVER_URL`, `DISCORD_BOT_INBOUND_SECRET`,
-`DISCORD_BOT_OUTBOUND_SECRET`, `SUPPORT_PHONE`, and optionally `VERCEL_PROTECTION_BYPASS_SECRET`.
+`DISCORD_BOT_OUTBOUND_SECRET`, `SUPPORT_PHONE`, and optionally `VERCEL_PROTECTION_BYPASS_SECRET`. For Support Q&A (step 3b) also:
+`DISCORD_SUPPORT_FORUM_ID`, `DISCORD_TAG_SUPPORT_ID`, `DISCORD_TAG_RESOLVED_ID`, `DISCORD_TAG_NEEDS_STAFF_ID`,
+`DISCORD_SUPPORT_CHANNEL_ID`, `DISCORD_SUPPORT_ROLE_ID`, `ANTHROPIC_API_KEY`.
 If anything is missing or malformed the bot exits immediately and prints the variable **names** that are wrong (never values).
 
 **Smoke checks**
@@ -189,6 +241,13 @@ If anything is missing or malformed the bot exits immediately and prints the var
    (`npm ci && npm run build`), start (`npm start`), the `/health` check and the **Always restart** policy.
 3. **Variables** tab: add every variable from `.env.example`. Do **not** set `PORT` (Railway injects it). Leave
    `VERCEL_PROTECTION_BYPASS_SECRET` unset for production.
+   - **Add these seven BEFORE pushing the Q&A code.** The bot exits at boot, listing the missing names, if any is absent (a deploy
+     without them will crash-loop and take verification down with it): `DISCORD_SUPPORT_FORUM_ID`, `DISCORD_TAG_SUPPORT_ID`,
+     `DISCORD_TAG_RESOLVED_ID`, `DISCORD_TAG_NEEDS_STAFF_ID`, `DISCORD_SUPPORT_CHANNEL_ID`, `DISCORD_SUPPORT_ROLE_ID`,
+     `ANTHROPIC_API_KEY`.
+   - Also turn **Message Content Intent** ON in the Developer Portal first (step 1), or login fails with "Used disallowed intents".
+   - Re-invite the bot with the new permission integer (step 3) and set up the forum and Support channel (step 3b) for the
+     server it will run in.
 4. Confirm in the first build log that it's running **Node 22** (`engines` and `.nvmrc` pin it). If it picked another version, set
    a `NODE_VERSION=22` variable and redeploy.
 5. **Settings → Networking → Generate Domain** first, and check `https://<generated>.up.railway.app/health` → `200 {"ok":true}`.
@@ -255,7 +314,14 @@ Run `npm run kb:check`, then `npm run eval:qa` (real API, about $0.05; needs `AN
 | Bot exits at boot listing variable names | Missing/malformed env var (or the two secrets are equal) |
 | Boot says `content/rules.md is too long` | Trim the rules file to ≤ 6000 characters |
 | `/health` is 503 | Gateway not connected yet, or bad token / Server Members intent off |
-| "Used disallowed intents" on login | Server Members Intent not enabled in the Developer Portal |
+| "Used disallowed intents" on login | Server Members Intent **or Message Content Intent** not enabled in the Developer Portal |
+| Boot says `kb invalid: <file>.md:<line>: …` | A `kb/*.md` entry is malformed (or contains an @mention); run `npm run kb:check` |
+| `qa_misconfigured` alert | The startup setup check found a problem: see the codes in the bot log (step 3b) |
+| Bot never answers in the forum | Support tag not on the post, Message Content Intent off, or `setup check` problems; also check `qa_*` alerts |
+| Escalation says "handing this to the team" but nobody was pinged | The bot lacks **Mention Everyone** and the support role isn't mentionable (`support_role_not_pingable`) |
+| `qa_tag_swap_failed` alert | The bot lacks **Manage Threads** in the forum, or a tag ID is wrong |
+| `qa_escalation_failed` alert | Private thread couldn't be created: the bot needs **Create Private Threads**, **Send Messages in Threads** and **Manage Threads** in the Support channel |
+| Staff can't see a private thread | The support role needs **Manage Threads** on the Support channel (private threads are only visible to added members and moderators) |
 | Everyone gets "We couldn't verify you automatically" | Often server-side: missing GHL env vars (`delivery_failed`), wrong DB, wrong `REIBLAST_SERVER_URL` |
 | "Something went wrong on our end" + a staff alert | `auth_failed` / `auth_missing` / `server_misconfigured`: the two `DISCORD_BOT_INBOUND_SECRET` values differ or are unset |
 | "Something went wrong on our end", no alert | `internal_error`: server error, timeout, or an HTML page (check preview protection, step 4c) |

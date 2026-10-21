@@ -1,4 +1,4 @@
-import { Events, type Client } from "discord.js";
+import { Events, type ButtonInteraction, type Client } from "discord.js";
 import { createLogger } from "../logger.js";
 import type { VerifyFlow } from "../verify/flow.js";
 import type { createSetupHandler } from "../verify/setup.js";
@@ -9,7 +9,13 @@ import { SETUP_VERIFY, UNLINK } from "./commands.js";
 /** Routes interactions by static custom ID. The listener never lets an error escape. */
 export function registerInteractionHandlers(
   client: Client,
-  deps: { flow: VerifyFlow; setup: ReturnType<typeof createSetupHandler>; unlink: ReturnType<typeof createUnlinkHandler> },
+  deps: {
+    flow: VerifyFlow;
+    setup: ReturnType<typeof createSetupHandler>;
+    unlink: ReturnType<typeof createUnlinkHandler>;
+    /** Q&A buttons (qa:solved, qa:help, qa:to-private, qa:close). Each returns true if the click was theirs. */
+    qa?: { answer: (i: ButtonInteraction) => Promise<boolean>; staff: (i: ButtonInteraction) => Promise<boolean> };
+  },
 ): void {
   const log = createLogger("interactions");
   const { flow, setup, unlink } = deps;
@@ -20,6 +26,7 @@ export function registerInteractionHandlers(
         if (i.commandName === SETUP_VERIFY) await setup(i);
         else if (i.commandName === UNLINK) await unlink(i);
       } else if (i.isButton()) {
+        if (deps.qa && ((await deps.qa.answer(i)) || (await deps.qa.staff(i)))) return;
         switch (i.customId) {
           case IDS.buttonEmail:
             return flow.handlePanelButton(i, "email");

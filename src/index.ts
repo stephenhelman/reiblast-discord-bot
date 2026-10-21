@@ -1,8 +1,10 @@
 import { loadConfig } from "./config.js";
 import { createDiscordClient } from "./discord/client.js";
+import { createQa, loadQaKb } from "./discord/qa-setup.js";
 import { registerInteractionHandlers } from "./discord/interactions.js";
 import { createStaffAlerter, createStaffLogSender } from "./discord/staff-alert.js";
 import { buildApp, closeHttpServer, startHttpServer } from "./http/server.js";
+import { KbError } from "./kb/load.js";
 import { createLogger } from "./logger.js";
 import { createRoleGranter } from "./roles/grant.js";
 import { createRoleRevoker } from "./roles/revoke.js";
@@ -23,6 +25,16 @@ try {
   rules = loadRules();
 } catch (err) {
   log.error(err instanceof Error ? err.message : "could not load rules");
+  process.exit(1);
+}
+
+// Fail fast and clearly if the knowledge base is invalid (file:line problems only, never KB text).
+let kb;
+try {
+  kb = loadQaKb();
+} catch (err) {
+  if (err instanceof KbError) for (const i of err.issues) log.error(`kb invalid: ${i.where}: ${i.message}`);
+  else log.error("could not load the knowledge base");
   process.exit(1);
 }
 
@@ -78,7 +90,11 @@ const unlink = createUnlinkHandler({
   },
   alert,
 });
-registerInteractionHandlers(client, { flow, setup, unlink });
+const qa = createQa(client, config, kb, alert);
+qa.registerListeners();
+qa.checkSetupOnReady();
+log.info("knowledge base loaded", { entries: kb.entries.length, hash: kb.hash });
+registerInteractionHandlers(client, { flow, setup, unlink, qa: qa.buttons });
 
 
 // HTTP first so the health check answers (503) while the gateway is still connecting.
