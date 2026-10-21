@@ -8,7 +8,8 @@ import { writeFileSync } from "node:fs";
 import { loadKb } from "../src/kb/load.js";
 import type { Logger } from "../src/logger.js";
 import { createAnswerer, type AnswerResult, type QaClient } from "../src/qa/answer.js";
-import { CASES, type EvalCase } from "./qa-cases.js";
+import { checkResult, flagResult } from "./checks.js";
+import { CASES } from "./qa-cases.js";
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
@@ -52,33 +53,15 @@ const quiet = {
 } as Logger;
 const answer = createAnswerer({ client, kb, logger: quiet });
 
-const MENTION = /@everyone|@here|<@/i;
-
 interface RunResult {
   caseId: string;
   run: number;
   pass: boolean;
   problems: string[];
+  /** Soft findings (not failures). */
+  flags: string[];
   result: AnswerResult;
   usage: CallUsage | undefined;
-}
-
-function check(c: EvalCase, r: AnswerResult): string[] {
-  const problems: string[] = [];
-  if (!r.ok) return [`ok:false (${r.reason})`];
-  if (r.outcome !== c.expect) problems.push(`outcome ${r.outcome}, expected ${c.expect}`);
-  if (r.outcome === "answered") {
-    if (c.anyOfIds && !r.kbIds.some((id) => c.anyOfIds!.includes(id))) problems.push(`cited ${r.kbIds.join(",")}, expected one of ${c.anyOfIds.join(",")}`);
-    if (r.reply.length > 2000) problems.push(`reply ${r.reply.length} chars (>2000)`);
-  }
-  if ("reply" in r) {
-    const lower = r.reply.toLowerCase();
-    for (const needle of c.requireInReply ?? []) if (!lower.includes(needle.toLowerCase())) problems.push(`reply lacks "${needle}"`);
-    for (const needle of c.forbidInReply ?? []) if (lower.includes(needle.toLowerCase())) problems.push(`reply contains "${needle}"`);
-    if (!r.reply.trim()) problems.push("empty reply");
-    if (MENTION.test(r.reply)) problems.push("reply contains a mention");
-  }
-  return problems;
 }
 
 // Flags: --only=ID,ID filters cases (kept in file order); --once forces 1 run each. First other arg is the results file.
@@ -91,8 +74,8 @@ for (const c of selected) {
   for (let run = 1; run <= c.runs; run++) {
     lastUsage = undefined;
     const result = await answer({ history: c.history, surface: c.surface ?? "forum", progress: c.progress });
-    const problems = check(c, result);
-    results.push({ caseId: c.id, run, pass: problems.length === 0, problems, result, usage: lastUsage });
+    const problems = checkResult(c, result);
+    results.push({ caseId: c.id, run, pass: problems.length === 0, problems, flags: flagResult(result), result, usage: lastUsage });
     process.stdout.write(problems.length === 0 ? "." : "F");
   }
 }
@@ -119,6 +102,19 @@ const primaryFirst = withIds.filter((r) => r.result.ok && r.result.outcome === "
 console.log(`primary entry listed first (informational, not scored): ${primaryFirst.length}/${withIds.length} answered runs`);
 const lens = answeredRuns.map((r) => (r.result.ok && r.result.outcome === "answered" ? r.result.reply.length : 0));
 console.log(`answered reply length: max ${Math.max(...lens)}, avg ${Math.round(lens.reduce((a, b) => a + b, 0) / lens.length)}, over 600: ${lens.filter((n) => n > 600).length}/${lens.length}`);
+
+const REVIEW_GROUPS = new Set(["diagnose", "a2p-banner", "guided-limits", "summary-safety"]);
+console.log("\n--- troubleshooting review: what the bot asked / answered, and the staff summary ---");
+for (const r of results) {
+  const c = CASES.find((x) => x.id === r.caseId)!;
+  if (!REVIEW_GROUPS.has(c.group) || !r.result.ok) continue;
+  const res = r.result;
+  const said = "reply" in res ? ` | ${res.reply.replace(/\s+/g, " ").slice(0, 260)}` : "";
+  console.log(`${r.caseId}.${r.run} [${res.outcome}]${said}\n      summary: ${res.summary}${r.flags.length ? `\n      ⚑ ${r.flags.join("; ")}` : ""}`);
+}
+
+console.log(`\nadvice-check flags (not failures): ${results.filter((r) => r.flags.length).length}/${results.length} runs`);
+for (const r of results.filter((x) => x.flags.length)) console.log(`  ${r.caseId}.${r.run}: ${r.flags.join("; ")}`);
 
 console.log("\ncache / token usage per call (call #, case.run, input, cache_read, cache_write, output, stop):");
 results.forEach((r, i) => {
