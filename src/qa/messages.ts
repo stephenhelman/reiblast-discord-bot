@@ -8,9 +8,20 @@ export const QA_TEXT = {
   notAllowed: "Only the person who asked, or REIblast staff, can use these buttons.",
   alreadyHandled: "This one is already being handled.",
   genericError: "Something went wrong on our end. Please try again in a moment.",
+  staffOnly: "Only REIblast staff can use this button.",
+  memberGone: "I couldn't find that member in the server, so I can't open a private thread for them.",
+  alreadyPrivate: "A private thread already exists for this post.",
+  /** Fixed escalation template; the role mention is the one ping (allowedMentions limits it to that role). */
+  handoff: (roleId: string) => `<@&${roleId}> Thanks for your patience. I'm handing this to the team, and someone will follow up here.`,
+  /** Public note in the forum post once it moves to a private thread. No details. */
+  privateNote: (threadId: string) => `I've moved this to a private thread so the team can look at your account: <#${threadId}>`,
+  /** Last message in a private thread before it is archived and locked. */
+  closed: "This thread is now closed. If anything else comes up, please open a new post in the support forum and tag it **Support**.",
 } as const;
 
 export const QA_LABELS = {
   solved: "That solved it",
   help: "Still need help",
+  movePrivate: "Move to private",
+  close: "Close",
 } as const;

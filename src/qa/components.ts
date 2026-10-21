@@ -9,3 +9,17 @@ export function buildAnswerRow(): ActionRowBuilder<ButtonBuilder> {
     new ButtonBuilder().setCustomId(QA_IDS.help).setLabel(QA_LABELS.help).setStyle(ButtonStyle.Secondary),
   );
 }
+
+/** Staff-only, under the "handing this to the team" message in a Needs Staff post. */
+export function buildMovePrivateRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(QA_IDS.toPrivate).setLabel(QA_LABELS.movePrivate).setStyle(ButtonStyle.Primary),
+  );
+}
+
+/** Staff-only, on the first message of a private thread. */
+export function buildCloseRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(QA_IDS.close).setLabel(QA_LABELS.close).setStyle(ButtonStyle.Danger),
+  );
+}

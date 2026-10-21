@@ -1,7 +1,8 @@
 /**
  * The only place the Q&A feature sends channel messages. Everything goes through `allowedMentions()`, whose base
- * is `{ parse: [] }`: nothing the model writes (or a member makes it echo) can ping anyone. The single exception is an
- * explicit support-role ping on a fixed escalation message, which only `postFixedText` can request — model text can't.
+ * is `{ parse: [] }`: nothing the model writes (or a member makes it echo) can ping anyone. The only pings are on fixed
+ * bot text, via `postFixedText`: exactly one role (the support role) and/or exactly one user (the member being
+ * helped), on the first message. Model text has no way to request a ping.
  */
 import type { ActionRowBuilder, ButtonBuilder } from "discord.js";
 import { buildAnswerRow } from "./components.js";
@@ -10,15 +11,23 @@ export const DISCORD_MESSAGE_LIMIT = 2000;
 
 export interface AllowedMentions {
   parse: [];
-  /** Present only for the explicit support-role ping. */
-  roles?: string[];
+  /** Present only for the explicit support-role ping: exactly one role. */
+  roles?: [string];
+  /** Present only for the explicit ping of the member being helped: exactly one user. */
+  users?: [string];
   /** Present (false) on replies, so replying never pings the member being replied to. */
   repliedUser?: false;
 }
 
-export function allowedMentions(opts: { pingRoleId?: string; asReply?: boolean } = {}): AllowedMentions {
+const SNOWFLAKE = /^\d{15,25}$/;
+
+export function allowedMentions(opts: { pingRoleId?: string; pingUserId?: string; asReply?: boolean } = {}): AllowedMentions {
+  for (const id of [opts.pingRoleId, opts.pingUserId]) {
+    if (id !== undefined && !SNOWFLAKE.test(id)) throw new TypeError("ping target must be a Discord ID");
+  }
   const out: AllowedMentions = { parse: [] };
   if (opts.pingRoleId) out.roles = [opts.pingRoleId];
+  if (opts.pingUserId) out.users = [opts.pingUserId];
   if (opts.asReply) out.repliedUser = false;
   return out;
 }
@@ -34,6 +43,14 @@ export interface OutgoingMessage {
 export interface PostTarget {
   reply(message: OutgoingMessage): Promise<unknown>;
   send(message: OutgoingMessage): Promise<unknown>;
+}
+
+/**
+ * Adapts a channel / thread (anything with `send`) to a PostTarget whose first part is a plain send. Lives here so
+ * `.send(` appears nowhere else in the feature.
+ */
+export function threadTarget(channel: { send(message: OutgoingMessage): Promise<unknown> }): PostTarget {
+  return { reply: (m) => channel.send(m), send: (m) => channel.send(m) };
 }
 
 /** Splits at paragraph, then line, then space boundaries; hard-cuts only a single unbroken run. Never returns empties. */
@@ -68,28 +85,54 @@ export function splitMessage(text: string, limit: number = DISCORD_MESSAGE_LIMIT
   return parts.filter(Boolean);
 }
 
-async function sendParts(target: PostTarget, parts: string[], opts: { buttons: boolean; pingRoleId?: string }): Promise<number> {
+interface SendOptions {
+  components?: ActionRowBuilder<ButtonBuilder>[];
+  pingRoleId?: string;
+  pingUserId?: string;
+  /** How the first part goes out: as a reply to the triggering message, or a plain send into the channel. */
+  first: "reply" | "send";
+}
+
+async function sendParts(target: PostTarget, parts: string[], opts: SendOptions): Promise<number> {
   if (parts.length === 0) throw new TypeError("nothing to post");
   for (const [i, content] of parts.entries()) {
+    const isFirst = i === 0;
     const message: OutgoingMessage = {
       content,
-      allowedMentions: allowedMentions({ asReply: i === 0, pingRoleId: i === 0 ? opts.pingRoleId : undefined }),
-      ...(opts.buttons && i === parts.length - 1 ? { components: [buildAnswerRow()] } : {}),
+      // Pings ride on the first part only.
+      allowedMentions: allowedMentions({
+        asReply: isFirst && opts.first === "reply",
+        pingRoleId: isFirst ? opts.pingRoleId : undefined,
+        pingUserId: isFirst ? opts.pingUserId : undefined,
+      }),
+      ...(opts.components && i === parts.length - 1 ? { components: opts.components } : {}),
     };
-    await (i === 0 ? target.reply(message) : target.send(message));
+    await (isFirst && opts.first === "reply" ? target.reply(message) : target.send(message));
   }
   return parts.length;
 }
 
 /**
- * Posts model-written text (an answer or a clarifying question). No role ping is possible here. Buttons, if asked for,
+ * Posts model-written text (an answer or a clarifying question). No ping is possible here. Buttons, if asked for,
  * go on the last part only. Returns the number of messages sent.
  */
 export function postModelText(target: PostTarget, text: string, opts: { buttons?: boolean } = {}): Promise<number> {
-  return sendParts(target, splitMessage(text), { buttons: opts.buttons ?? false });
+  return sendParts(target, splitMessage(text), { first: "reply", components: opts.buttons ? [buildAnswerRow()] : undefined });
 }
 
-/** Posts fixed bot text (templates, notes). Optionally pings the support role — the only ping the bot ever sends. */
-export function postFixedText(target: PostTarget, text: string, opts: { pingRoleId?: string } = {}): Promise<number> {
-  return sendParts(target, splitMessage(text), { buttons: false, pingRoleId: opts.pingRoleId });
+/**
+ * Posts fixed bot text (templates, notes). May ping exactly one role and/or exactly one user — the only pings the bot
+ * ever sends — and may carry button rows (on the last part).
+ */
+export function postFixedText(
+  target: PostTarget,
+  text: string,
+  opts: { pingRoleId?: string; pingUserId?: string; components?: ActionRowBuilder<ButtonBuilder>[]; first?: "reply" | "send" } = {},
+): Promise<number> {
+  return sendParts(target, splitMessage(text), {
+    first: opts.first ?? "reply",
+    pingRoleId: opts.pingRoleId,
+    pingUserId: opts.pingUserId,
+    components: opts.components,
+  });
 }

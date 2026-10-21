@@ -12,9 +12,11 @@ const quiet: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 function thread(over: Partial<{ ownerId: string | null; appliedTags: string[]; setAppliedTags: ThreadLike["setAppliedTags"] }> = {}) {
   return {
     id: "thread-1",
+    url: "https://discord.com/channels/1/thread-1",
     ownerId: OP as string | null,
     appliedTags: [cfg.tagSupportId, "other"],
     setAppliedTags: vi.fn(async (_t: string[], _r?: string) => {}),
+    send: vi.fn(async () => {}),
     ...over,
   };
 }

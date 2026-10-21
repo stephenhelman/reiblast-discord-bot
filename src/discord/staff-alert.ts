@@ -65,6 +65,6 @@ export function createStaffLogSender(client: Client, channelId: string): (text: 
   return async (text) => {
     const channel = await client.channels.fetch(channelId);
     if (!channel?.isSendable()) throw new Error("staff log channel is not sendable");
-    await channel.send({ content: text });
+    await channel.send({ content: text, allowedMentions: { parse: [] } });
   };
 }

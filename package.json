@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "kb:check": "tsx src/kb/cli.ts",
     "eval:qa": "tsx --env-file=.env eval/qa-eval.ts",
+    "verify-private-threads": "tsx --env-file=.env src/discord/verify-private-threads.ts",
     "list-forum-tags": "tsx --env-file=.env src/discord/list-forum-tags.ts",
     "test": "vitest run"
   },

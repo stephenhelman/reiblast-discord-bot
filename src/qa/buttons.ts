@@ -3,15 +3,19 @@ import { createLogger, type Logger } from "../logger.js";
 import { hasRole, type SetupInteractionLike } from "../verify/setup.js";
 import { isAnswerButton, QA_IDS } from "./ids.js";
 import { QA_TEXT } from "./messages.js";
+import type { OutgoingMessage } from "./post.js";
 import { hasTerminalTag, swapTags } from "./tags.js";
 import type { TriggerConfig } from "./triggers.js";
 
 /** The forum post a button was clicked in. */
 export interface ThreadLike {
   id: string;
+  /** Link to the post. */
+  url: string;
   ownerId: string | null;
   appliedTags: readonly string[];
   setAppliedTags(tags: string[], reason?: string): Promise<unknown>;
+  send(message: OutgoingMessage): Promise<unknown>;
 }
 
 export interface AnswerButtonInteractionLike {
