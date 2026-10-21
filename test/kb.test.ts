@@ -123,6 +123,8 @@ describe("loadKb", () => {
     for (const phrase of ["Settings, then Phone System", "banner", "red", "yellow", "green"]) expect(get("a2p-041").a).toContain(phrase);
     // what each result means
     expect(get("a2p-042").a).toMatch(/KYC Verification/);
+    expect(get("a2p-042").a).toMatch(/click Complete Verification/); // leads with the action, not "look for the badge"
+    expect(get("a2p-042").a.indexOf("finish it")).toBeLessThan(get("a2p-042").a.indexOf("Verified badge"));
     expect(get("a2p-042").a).toMatch(/REIblast hasn't started your A2P registration/);
     expect(get("a2p-043").a).toMatch(/hasn't been submitted/);
     expect(get("a2p-044").a).toMatch(/Trust settings/);

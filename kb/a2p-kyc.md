@@ -174,7 +174,7 @@ A: In your CRM, go to Settings, then Phone System. You'll land on your phone num
 
 ### a2p-042
 Q: I don't see a phone number in Settings, then Phone System. What does that mean?
-A: It's one of two things. First, KYC verification may not be complete: go to Settings, then Phone System, then Additional Settings, then KYC Verification and look for the green Verified badge. If it isn't verified yet, finish KYC, because a phone number can't be added until you do. Second, if KYC already shows Verified and you still have no phone number, it means REIblast hasn't started your A2P registration yet.
+A: It's one of two things. If KYC verification isn't finished yet (a phone number can't be added until it is), finish it: go to Settings, then Phone System, then Additional Settings, then KYC Verification, and click Complete Verification. If KYC already shows a green Verified badge and you still have no phone number, it means REIblast hasn't started your A2P registration yet.
 
 ### a2p-043
 Q: The banner at the top of Settings, then Phone System is red. What does that mean?
