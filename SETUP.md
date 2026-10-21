@@ -125,6 +125,23 @@ checklist). It needs a support **forum**, a locked **Support** channel for priva
   verifies this and raises a `qa_misconfigured` alert (`support_role_not_mentionable`) if it isn't.
 - Members of the **staff role** or the **support role** can use the staff buttons (Move to private, Close).
 
+**Guided troubleshooting** (no new permissions or variables)
+- When a member describes a symptom the KB covers with several causes ("my texts aren't sending"), the bot asks **one question at a time**
+  that the member can check themselves, saying where to look (for example "Settings, then Phone System: what color is the banner?").
+  It follows the KB's own order (A2P banner, then wallet, then number, then daily limit; the error code when a message failed) and answers
+  as soon as the answers point to a KB entry. At most **4** questions, then it answers or hands off. Each question ends with a small grey
+  `Check N of 4` line (a clarifying question ends with `Quick question`) and has only a **Still need help** button; the button on the
+  previous question is removed when the bot posts its next message.
+- Those grey lines are how the bot keeps count: it re-reads them from the post, so a restart or redeploy mid-walk-through resumes at the
+  right number. Don't delete them.
+- A hand-off from a walk-through (Still need help, the 4-question cap, or "not covered" after questions) posts the usual "handing this to the
+  team" message with the role ping, then `Case summary for the team:` with a short neutral summary, then a fixed ask for the error code and
+  message status, 2-3 example messages from the last 24 hours, and what they have tried. An account question from a walk-through goes to a
+  private thread whose first message carries the summary, followed by the same ask. Plain "not covered" questions are unchanged.
+- **The KB is the source of the checks.** The questions reuse the KB's navigation words and A2P banner colors (`a2p-041` to `a2p-045`, the
+  error-code entry `snd-042`, the wallet entry `wal-014`). If the CRM's menus or banner colors change, update those entries and rerun
+  `npm run eval:qa`.
+
 **Check it**
 1. `npm run kb:check` → `kb ok: 255 entries …`.
 2. Start the bot. The log shows `setup check passed`, or `setup check found problems problems=…` with static codes (and a
@@ -307,7 +324,7 @@ the switch and updating the production server's `DISCORD_BOT_INBOUND_SECRET` to 
 
 ## After any KB or Q&A rules edit
 
-Run `npm run kb:check`, then `npm run eval:qa` (real API, about $0.05; needs `ANTHROPIC_API_KEY` in `.env`) and review the table **before deploying**.
+Run `npm run kb:check`, then `npm run eval:qa` (real API, about 100 calls and $0.05-0.06; needs `ANTHROPIC_API_KEY` in `.env`) and review the table **before deploying**.
 
 ## Troubleshooting
 
@@ -318,6 +335,11 @@ Run `npm run kb:check`, then `npm run eval:qa` (real API, about $0.05; needs `AN
 | `/health` is 503 | Gateway not connected yet, or bad token / Server Members intent off |
 | "Used disallowed intents" on login | Server Members Intent **or Message Content Intent** not enabled in the Developer Portal |
 | Boot says `kb invalid: <file>.md:<line>: …` | A `kb/*.md` entry is malformed (or contains an @mention); run `npm run kb:check` |
+| Log shows `summary_unavailable` | A hand-off from a walk-through went out without a case summary: nothing was remembered (a restart) and the extra summary call failed, or the model was failing. The hand-off itself still happened |
+| Log shows `button_clear_failed` | The bot couldn't remove an old question's button (the message was deleted, or Discord was slow). Harmless; nothing was blocked |
+| Log shows `intake_ask_failed` | A private thread opened but the intake ask couldn't be posted in it. Harmless; ask the member by hand |
+| A walk-through restarts at "Check 1 of 4" | The grey `Check N of 4` lines were deleted from the post (the bot reads them to resume) |
+| A guided question names a menu or color that doesn't exist | The CRM changed: update the KB entries listed under "Guided troubleshooting" and rerun the eval |
 | `qa_misconfigured` alert | The startup setup check found a problem: see the codes in the bot log (step 3b) |
 | Bot never answers in the forum | Support tag not on the post, Message Content Intent off, or `setup check` problems; also check `qa_*` alerts |
 | Escalation says "handing this to the team" but nobody was pinged | The support role isn't mentionable (turn on "Allow anyone to @mention this role"; the startup check reports `support_role_not_mentionable`) |

@@ -65,6 +65,25 @@ describe("SETUP.md", () => {
     expect(railway).toMatch(/BEFORE pushing/);
   });
 
+  it("documents guided troubleshooting, its log codes, and what to maintain", () => {
+    for (const phrase of [
+      "Guided troubleshooting",
+      "Check N of 4",
+      "Quick question",
+      "Still need help",
+      "Case summary for the team:",
+      "a2p-041",
+      "snd-042",
+      "wal-014",
+      "summary_unavailable",
+      "button_clear_failed",
+      "intake_ask_failed",
+    ]) {
+      expect(setup, phrase).toContain(phrase);
+    }
+    expect(setup).toMatch(/kb ok: 255 entries/);
+  });
+
   it("documents the helper commands it points to", () => {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: Record<string, string> };
     for (const script of ["list-forum-tags", "verify-private-threads", "eval:qa", "kb:check"]) {
@@ -93,6 +112,19 @@ describe("docs/qa-live-test.md", () => {
       "follow-up from the poster",
       "Redeploy mid-thread",
       "@everyone",
+      // guided troubleshooting
+      "A full walk-through",
+      "Check 1 of 4",
+      "Quick question",
+      "Help-only button and stale-button cleanup",
+      "4-question cap",
+      "mid-walk-through",
+      "Case summary for the team:",
+      "intake ask",
+      "account_specific from a walk-through",
+      "Yellow banner is answered directly",
+      "Redeploy mid-walk-through",
+      "summary_unavailable",
     ]) {
       expect(doc.toLowerCase(), phrase).toContain(phrase.toLowerCase());
     }
