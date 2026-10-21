@@ -13,6 +13,8 @@ const HINTS: Record<string, string> = {
   role_missing_permissions: "Role grant was refused. Check Manage Roles and that the bot's role is above the REIblast role.",
   role_not_found: "The REIblast role ID in config does not exist in the server.",
   role_member_not_found: "A member finished verifying but could not be found in the server (they may have left).",
+  revoke_missing_permissions:
+    "A revoke could not remove the role. Check Manage Roles and that the bot's role is above the REIblast role. Server will retry.",
   role_discord_unavailable: "Role grant failed on a Discord error or the gateway was not ready.",
 };
 

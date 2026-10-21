@@ -1,3 +1,5 @@
+import { discordCode } from "./errors.js";
+
 export type GrantFailure = "member_not_found" | "missing_permissions" | "role_not_found" | "discord_unavailable";
 
 export type GrantResult =
@@ -10,14 +12,6 @@ export interface MemberLike {
 }
 export interface GuildLike {
   members: { fetch(userId: string): Promise<MemberLike> };
-}
-
-function discordCode(err: unknown): number | undefined {
-  if (typeof err === "object" && err !== null && "code" in err) {
-    const c = (err as { code: unknown }).code;
-    return typeof c === "number" ? c : undefined;
-  }
-  return undefined;
 }
 
 function classify(err: unknown): GrantFailure {

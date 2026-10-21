@@ -5,6 +5,7 @@ import { createStaffAlerter, createStaffLogSender } from "./discord/staff-alert.
 import { buildApp, closeHttpServer, startHttpServer } from "./http/server.js";
 import { createLogger } from "./logger.js";
 import { createRoleGranter } from "./roles/grant.js";
+import { createRoleRevoker } from "./roles/revoke.js";
 import { createServerClient } from "./server-client/client.js";
 import { createVerifyFlow } from "./verify/flow.js";
 import { loadRules } from "./verify/rules.js";
@@ -28,6 +29,22 @@ const client = createDiscordClient();
 const sessions = createSessionStore();
 sessions.start();
 
+const alert = createStaffAlerter({ send: createStaffLogSender(client, config.DISCORD_STAFF_LOG_CHANNEL_ID) });
+const getGuild = () => client.guilds.fetch(config.DISCORD_GUILD_ID);
+
+const app = buildApp({
+  isDiscordReady: () => client.isReady(),
+  revoke: {
+    secret: config.DISCORD_BOT_OUTBOUND_SECRET,
+    revoke: createRoleRevoker({ getGuild, roleId: config.DISCORD_REIBLAST_ROLE_ID }),
+    forgetUser: (userId) => {
+      sessions.clearPending(userId);
+      sessions.clearVerified(userId);
+    },
+    alert,
+  },
+});
+
 const flow = createVerifyFlow({
   serverClient: createServerClient({
     baseUrl: config.REIBLAST_SERVER_URL,
@@ -36,11 +53,8 @@ const flow = createVerifyFlow({
   sessions,
   rules,
   supportPhone: config.SUPPORT_PHONE,
-  grantRole: createRoleGranter({
-    getGuild: () => client.guilds.fetch(config.DISCORD_GUILD_ID),
-    roleId: config.DISCORD_REIBLAST_ROLE_ID,
-  }),
-  alert: createStaffAlerter({ send: createStaffLogSender(client, config.DISCORD_STAFF_LOG_CHANNEL_ID) }),
+  grantRole: createRoleGranter({ getGuild, roleId: config.DISCORD_REIBLAST_ROLE_ID }),
+  alert,
 });
 const setup = createSetupHandler({
   guildId: config.DISCORD_GUILD_ID,
@@ -52,7 +66,6 @@ const setup = createSetupHandler({
 });
 registerInteractionHandlers(client, { flow, setup });
 
-const app = buildApp({ isDiscordReady: () => client.isReady() });
 
 // HTTP first so the health check answers (503) while the gateway is still connecting.
 const server = await startHttpServer(app, config.PORT);

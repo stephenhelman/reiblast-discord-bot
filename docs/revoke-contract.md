@@ -34,12 +34,13 @@ non-object body) is `bad_request` / `bad_json`.
 | `bad_json` | `error` | Body is not a JSON object. | Bug. Don't retry. |
 | `bad_request` | `error` | `discordUserId` missing or malformed. | Bug. Don't retry. |
 | `discord_unavailable` | `error` | Gateway not ready, or a Discord API failure (other than Unknown Member). | **Retry** with backoff. |
+| `internal_error` | `error` | Unexpected exception in the bot's handler. | **Retry** with backoff. |
 
 All three `ok` reasons are success: mark the revoke delivered.
 
 ## Retry expectations
 
-- Treat `result: "ok"` as delivered. Treat `discord_unavailable` and any transport failure (timeout, connection error, non-JSON
+- Treat `result: "ok"` as delivered. Treat `discord_unavailable`, `internal_error` and any transport failure (timeout, connection error, non-JSON
   response, 5xx from the host) as retryable; every other `error` reason is permanent for that request.
 - Revoke is idempotent, so retrying (or re-sending after an ambiguous failure) is always safe.
 - Suggested outbox backoff: 1 min, 5 min, 30 min, 2 h, then alert staff and stop. A bot restart takes seconds, so most failures clear
@@ -56,4 +57,9 @@ The two must be different values.
 
 ## Suggested additions to `lib/billing/reason.ts` (server repo)
 
-`revoked`, `not_in_guild`, `not_holding_role`, `discord_unavailable` (the other codes already exist).
+`revoked`, `not_in_guild`, `not_holding_role`, `discord_unavailable` (the other codes, including `internal_error`, already exist).
+
+## Side effect worth knowing
+
+On any authenticated, well-formed revoke the bot also drops that Discord ID's in-progress verify session, so a member revoked
+mid-flow can't click "I agree" to get the role back — even if the Discord call itself failed and needs a retry.

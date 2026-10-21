@@ -2,14 +2,17 @@ import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { Hono } from "hono";
 import { healthRoute } from "./health.js";
+import { revokeRoute, type RevokeRouteDeps } from "./revoke.js";
 
 export interface HttpDeps {
   isDiscordReady: () => boolean;
+  revoke: Omit<RevokeRouteDeps, "isDiscordReady">;
 }
 
 export function buildApp(deps: HttpDeps): Hono {
   const app = new Hono();
   app.route("/", healthRoute(deps.isDiscordReady));
+  app.route("/", revokeRoute({ ...deps.revoke, isDiscordReady: deps.isDiscordReady }));
   return app;
 }
 
