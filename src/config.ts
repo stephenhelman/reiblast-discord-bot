@@ -16,6 +16,14 @@ const schema = z
     DISCORD_VERIFY_CHANNEL_ID: snowflake,
     DISCORD_STAFF_ROLE_ID: snowflake,
     DISCORD_STAFF_LOG_CHANNEL_ID: snowflake,
+    // AI Q&A: the support forum, its three tags, the locked Support channel (private-thread parent), the support role.
+    DISCORD_SUPPORT_FORUM_ID: snowflake,
+    DISCORD_TAG_SUPPORT_ID: snowflake,
+    DISCORD_TAG_RESOLVED_ID: snowflake,
+    DISCORD_TAG_NEEDS_STAFF_ID: snowflake,
+    DISCORD_SUPPORT_CHANNEL_ID: snowflake,
+    DISCORD_SUPPORT_ROLE_ID: snowflake,
+    ANTHROPIC_API_KEY: nonEmpty,
     REIBLAST_SERVER_URL: z
       .string()
       .url("must be a URL")
@@ -36,7 +44,11 @@ const schema = z
   .refine((e) => e.DISCORD_BOT_INBOUND_SECRET !== e.DISCORD_BOT_OUTBOUND_SECRET, {
     path: ["DISCORD_BOT_OUTBOUND_SECRET"],
     message: "must differ from DISCORD_BOT_INBOUND_SECRET",
-  });
+  })
+  .refine(
+    (e) => new Set([e.DISCORD_TAG_SUPPORT_ID, e.DISCORD_TAG_RESOLVED_ID, e.DISCORD_TAG_NEEDS_STAFF_ID]).size === 3,
+    { path: ["DISCORD_TAG_NEEDS_STAFF_ID"], message: "the three forum tag IDs must all differ" },
+  );
 
 export type Config = z.infer<typeof schema>;
 

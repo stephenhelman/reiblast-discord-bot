@@ -12,6 +12,8 @@
     "start": "node dist/index.js",
     "register-commands": "node --env-file=.env dist/discord/register-commands.js",
     "typecheck": "tsc --noEmit",
+    "kb:check": "tsx src/kb/cli.ts",
+    "list-forum-tags": "tsx --env-file=.env src/discord/list-forum-tags.ts",
     "test": "vitest run"
   },
   "dependencies": {
