@@ -53,7 +53,7 @@ function setup(over: { start?: StartOutcome; confirm?: ConfirmOutcome; grant?: G
       return over.start ?? START_CODE_SENT;
     }),
     verifyConfirm: vi.fn(async () => over.confirm ?? ({ result: "linked", reason: "linked" } as ConfirmOutcome)),
-  } satisfies ServerClient;
+  } satisfies Pick<ServerClient, "verifyStart" | "verifyConfirm">;
   const grantRole = vi.fn(async (): Promise<GrantResult> => {
     if (over.grant instanceof Error) throw over.grant;
     return over.grant ?? { status: "granted" };

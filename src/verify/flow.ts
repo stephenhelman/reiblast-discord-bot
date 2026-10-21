@@ -37,7 +37,7 @@ export interface ButtonInteractionLike {
 }
 
 export interface FlowDeps {
-  serverClient: ServerClient;
+  serverClient: Pick<ServerClient, "verifyStart" | "verifyConfirm">;
   sessions: SessionStore;
   /** Rules as embed descriptions (already validated/split at boot). */
   rules: string[];

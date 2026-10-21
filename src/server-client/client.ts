@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createLogger, type Logger } from "../logger.js";
-import type { ConfirmOutcome, Identifier, ServerClient, StartOutcome } from "./types.js";
+import type { ConfirmOutcome, Identifier, ServerClient, StartOutcome, UnlinkOutcome } from "./types.js";
 
 const SECRET_HEADER = "x-reiblast-discord-secret";
 const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
@@ -41,6 +41,12 @@ const confirmSchema = z.union([
   errorSchema,
 ]);
 
+const unlinkSchema = z.union([
+  z.object({ result: z.literal("unlinked"), reason: z.literal("unlinked") }),
+  z.object({ result: z.literal("not_linked"), reason: z.literal("not_linked") }),
+  errorSchema,
+]);
+
 export interface ServerClientOptions {
   baseUrl: string;
   secret: string;
@@ -66,7 +72,7 @@ export function createServerClient(opts: ServerClientOptions): ServerClient {
    * Logs the endpoint and reason only — never the request body, the response body, or any secret.
    */
   async function call<T extends { result: string; reason: string }>(
-    endpoint: "verify-start" | "verify-confirm",
+    endpoint: "verify-start" | "verify-confirm" | "unlink",
     path: string,
     body: Record<string, string>,
     schema: z.ZodType<T>,
@@ -123,5 +129,7 @@ export function createServerClient(opts: ServerClientOptions): ServerClient {
         { ...idBody(discordUserId, identifier), code },
         confirmSchema,
       ) as Promise<ConfirmOutcome>,
+    unlink: (discordUserId) =>
+      call("unlink", "/api/discord/unlink", { discordUserId }, unlinkSchema) as Promise<UnlinkOutcome>,
   };
 }

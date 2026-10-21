@@ -15,6 +15,10 @@ const HINTS: Record<string, string> = {
   role_member_not_found: "A member finished verifying but could not be found in the server (they may have left).",
   revoke_missing_permissions:
     "A revoke could not remove the role. Check Manage Roles and that the bot's role is above the REIblast role. Server will retry.",
+  unlink_role_missing_permissions:
+    "A staff /unlink cleared the link but the role could not be removed. Check Manage Roles and that the bot's role is above the REIblast role; remove the role by hand.",
+  unlink_role_discord_unavailable:
+    "A staff /unlink cleared the link but the role removal failed on a Discord error. Remove the role by hand.",
   role_discord_unavailable: "Role grant failed on a Discord error or the gateway was not ready.",
 };
 

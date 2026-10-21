@@ -11,6 +11,7 @@ import { createVerifyFlow } from "./verify/flow.js";
 import { loadRules } from "./verify/rules.js";
 import { createSessionStore } from "./verify/session.js";
 import { createSetupHandler } from "./verify/setup.js";
+import { createUnlinkHandler } from "./verify/unlink.js";
 
 const config = loadConfig();
 process.env.LOG_LEVEL = config.LOG_LEVEL;
@@ -45,12 +46,13 @@ const app = buildApp({
   },
 });
 
+const serverClient = createServerClient({
+  baseUrl: config.REIBLAST_SERVER_URL,
+  secret: config.DISCORD_BOT_INBOUND_SECRET,
+  vercelBypassSecret: config.VERCEL_PROTECTION_BYPASS_SECRET,
+});
 const flow = createVerifyFlow({
-  serverClient: createServerClient({
-    baseUrl: config.REIBLAST_SERVER_URL,
-    secret: config.DISCORD_BOT_INBOUND_SECRET,
-    vercelBypassSecret: config.VERCEL_PROTECTION_BYPASS_SECRET,
-  }),
+  serverClient,
   sessions,
   rules,
   supportPhone: config.SUPPORT_PHONE,
@@ -65,7 +67,18 @@ const setup = createSetupHandler({
     return channel?.isSendable() ? channel : null;
   },
 });
-registerInteractionHandlers(client, { flow, setup });
+const unlink = createUnlinkHandler({
+  guildId: config.DISCORD_GUILD_ID,
+  staffRoleId: config.DISCORD_STAFF_ROLE_ID,
+  serverClient,
+  revoke: createRoleRevoker({ getGuild, roleId: config.DISCORD_REIBLAST_ROLE_ID }),
+  forgetUser: (userId) => {
+    sessions.clearPending(userId);
+    sessions.clearVerified(userId);
+  },
+  alert,
+});
+registerInteractionHandlers(client, { flow, setup, unlink });
 
 
 // HTTP first so the health check answers (503) while the gateway is still connecting.
