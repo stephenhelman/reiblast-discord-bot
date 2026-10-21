@@ -5,7 +5,7 @@
  * helped), on the first message. Model text has no way to request a ping.
  */
 import type { ActionRowBuilder, ButtonBuilder } from "discord.js";
-import { buildAnswerRow } from "./components.js";
+import { buildAnswerRow, buildHelpOnlyRow } from "./components.js";
 
 export const DISCORD_MESSAGE_LIMIT = 2000;
 
@@ -113,11 +113,19 @@ async function sendParts(target: PostTarget, parts: string[], opts: SendOptions)
 }
 
 /**
- * Posts model-written text (an answer or a clarifying question). No ping is possible here. Buttons, if asked for,
- * go on the last part only. Returns the number of messages sent.
+ * Posts model-written text (an answer or a question). No ping is possible here. Buttons, if asked for, go on the last
+ * part only: `true` = "That solved it" / "Still need help"; "help" = "Still need help" alone (under a guided question).
+ * `marker` is a fixed counter line (see markers.ts) that code appends after the model text. Returns the number of
+ * messages sent.
  */
-export function postModelText(target: PostTarget, text: string, opts: { buttons?: boolean } = {}): Promise<number> {
-  return sendParts(target, splitMessage(text), { first: "reply", components: opts.buttons ? [buildAnswerRow()] : undefined });
+export function postModelText(
+  target: PostTarget,
+  text: string,
+  opts: { buttons?: boolean | "help"; marker?: string } = {},
+): Promise<number> {
+  const rows = opts.buttons === "help" ? [buildHelpOnlyRow()] : opts.buttons ? [buildAnswerRow()] : undefined;
+  const body = opts.marker ? `${text.trimEnd()}\n${opts.marker}` : text;
+  return sendParts(target, splitMessage(body), { first: "reply", components: rows });
 }
 
 /**

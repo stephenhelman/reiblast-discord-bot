@@ -95,6 +95,11 @@ export function toQaMessage(message: Message, ids: QaIds, botId: string): QaMess
     channelId: channel.id,
     target,
     fetchThreadMessages: () => (thread ? fetchThreadMessages(thread) : Promise.resolve([])),
+    clearButtons: async (messageId) => {
+      if (!thread) return;
+      const earlier = await thread.messages.fetch(messageId);
+      await earlier.edit({ components: [] });
+    },
     sendTyping: () => channel.sendTyping(),
   };
 }

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ButtonStyle } from "discord.js";
-import { buildAnswerRow } from "../src/qa/components.js";
+import { buildAnswerRow, buildHelpOnlyRow } from "../src/qa/components.js";
 import { QA_IDS } from "../src/qa/ids.js";
 import {
   allowedMentions,
@@ -200,6 +200,40 @@ describe("splitMessage", () => {
     const parts = splitMessage(text);
     expect(parts.every(Boolean)).toBe(true);
     expect(parts.join("\n").replace(/\s+/g, "")).toBe(text.replace(/\s+/g, ""));
+  });
+});
+
+describe("guided questions: marker line and the help-only button", () => {
+  it("appends the marker on its own line after the question", async () => {
+    const t = target();
+    await postModelText(t, "Is your balance above zero?", { buttons: "help", marker: "-# Check 2 of 4" });
+    expect(t.calls[0]?.msg.content).toBe("Is your balance above zero?\n-# Check 2 of 4");
+  });
+
+  it("'help' puts only 'Still need help' under the question; true keeps both answer buttons", async () => {
+    const help = target();
+    await postModelText(help, "Question?", { buttons: "help" });
+    expect(help.calls[0]?.msg.components?.[0]?.toJSON().components).toMatchObject([{ custom_id: "qa:help", label: "Still need help" }]);
+    const both = target();
+    await postModelText(both, "Answer.", { buttons: true });
+    expect(both.calls[0]?.msg.components?.[0]?.toJSON().components).toHaveLength(2);
+    const none = target();
+    await postModelText(none, "Q?", { marker: "-# Quick question" });
+    expect(none.calls[0]?.msg.components).toBeUndefined();
+  });
+
+  it("the marker travels with the last part, and the message still can't ping", async () => {
+    const t = target();
+    await postModelText(t, `${"a".repeat(1500)}\n\n${"b".repeat(1500)} @everyone`, { buttons: "help", marker: "-# Check 1 of 4" });
+    expect(t.calls.length).toBeGreaterThan(1);
+    expect(t.calls.at(-1)?.msg.content.endsWith("-# Check 1 of 4")).toBe(true);
+    for (const c of t.calls) expect(c.msg.allowedMentions).not.toHaveProperty("roles");
+  });
+
+  it("builds a single-button row", () => {
+    const row = buildHelpOnlyRow().toJSON();
+    expect(row.components).toHaveLength(1);
+    expect(row.components[0]).toMatchObject({ custom_id: "qa:help", label: "Still need help", style: ButtonStyle.Secondary });
   });
 });
 

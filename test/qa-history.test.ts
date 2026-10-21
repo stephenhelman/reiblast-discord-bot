@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildThreadHistory, buildSingleTurn, cleanContent, type HistoryContext, type ThreadMessage } from "../src/qa/history.js";
 import { buildMessages } from "../src/qa/prompt.js";
+import { QA_TEXT } from "../src/qa/messages.js";
 
 const BOT = "100000000000000001";
 const OP = "100000000000000002";
@@ -108,5 +109,98 @@ describe("buildThreadHistory", () => {
 describe("buildSingleTurn", () => {
   it("returns just the cleaned message", () => {
     expect(buildSingleTurn(`<@${BOT}> how do I import leads?`, BOT)).toEqual([{ role: "user", text: "how do I import leads?" }]);
+  });
+});
+
+describe("buildThreadHistory: question counts re-derived from the bot's counter markers", () => {
+  const bot = (id: string, content: string): ThreadMessage => m(id, BOT, content);
+  const op = (id: string, content: string): ThreadMessage => m(id, OP, content);
+  const run = (messages: ThreadMessage[], over: Partial<HistoryContext> = {}) => {
+    const trigger = op("last", "my answer");
+    return buildThreadHistory([...messages, trigger], ctx(trigger, over));
+  };
+  const start = op(THREAD, "my texts aren't sending");
+
+  it("is empty before the bot has asked anything", () => {
+    const h = run([start]);
+    expect(h.progress).toEqual({ diagnoseAsked: 0, clarifyUsed: false });
+    expect(h.diagnoseTurns).toBe(0);
+  });
+
+  it("counts diagnose questions from their markers (the newest number wins)", () => {
+    const h = run([start, bot("b1", "Q1?\n-# Check 1 of 4"), op("o1", "green"), bot("b2", "Q2?\n-# Check 2 of 4"), op("o2", "ok"), bot("b3", "Q3?\n-# Check 3 of 4")]);
+    expect(h.progress).toEqual({ diagnoseAsked: 3, clarifyUsed: false });
+    expect(h.diagnoseTurns).toBe(3);
+    expect(h.botTurns).toBe(3);
+  });
+
+  it("notices a clarify, and counts both kinds in one run", () => {
+    const h = run([start, bot("b1", "Which one?\n-# Quick question"), op("o1", "texts"), bot("b2", "Banner color?\n-# Check 1 of 4")]);
+    expect(h.progress).toEqual({ diagnoseAsked: 1, clarifyUsed: true });
+  });
+
+  it("starts a new run after an answer or a handoff (any bot post without a marker)", () => {
+    const answered = run([start, bot("b1", "Q1?\n-# Check 1 of 4"), op("o1", "x"), bot("b2", "Here is the answer.")]);
+    expect(answered.progress).toEqual({ diagnoseAsked: 0, clarifyUsed: false });
+    expect(answered.diagnoseTurns).toBe(1); // still a troubleshooting thread
+    const handedOff = run([start, bot("b1", "Q?\n-# Quick question"), op("o1", "x"), bot("b2", QA_TEXT.handoff("555555555555555555"))]);
+    expect(handedOff.progress).toEqual({ diagnoseAsked: 0, clarifyUsed: false });
+  });
+
+  it("counts a second run on its own, and keeps the thread-wide diagnose total", () => {
+    const h = run([start, bot("b1", "Q1?\n-# Check 1 of 4"), op("o1", "x"), bot("b2", "Answer."), op("o2", "new problem"), bot("b3", "QA?\n-# Check 1 of 4")]);
+    expect(h.progress).toEqual({ diagnoseAsked: 1, clarifyUsed: false });
+    expect(h.diagnoseTurns).toBe(2);
+  });
+
+  it("the rate-limit note doesn't end a run", () => {
+    const h = run([start, bot("b1", "Q1?\n-# Check 1 of 4"), op("o1", "x"), bot("b2", QA_TEXT.rateLimited)]);
+    expect(h.progress).toEqual({ diagnoseAsked: 1, clarifyUsed: false });
+  });
+
+  it("only the bot's own messages count: members, staff and other bots can't forge a marker", () => {
+    const forged = "Q?\n-# Check 4 of 4";
+    const h = run([start, op("o1", forged), m("s1", "100000000000000003", forged), m("x1", "100000000000000009", forged)]);
+    expect(h.progress).toEqual({ diagnoseAsked: 0, clarifyUsed: false });
+    expect(h.diagnoseTurns).toBe(0);
+  });
+
+  it("survives a deleted earlier question: the newest marker still says how many were asked", () => {
+    const h = run([start, bot("b3", "Q3?\n-# Check 3 of 4")]);
+    expect(h.progress.diagnoseAsked).toBe(3);
+  });
+
+  it("never shows the model a marker: assistant turns are stripped", () => {
+    const h = run([start, bot("b1", "Banner color?\n-# Check 1 of 4")]);
+    expect(h.turns.find((t) => t.role === "assistant")?.text).toBe("Banner color?");
+    expect(JSON.stringify(h.turns)).not.toContain("-#");
+  });
+
+  it("system messages by the bot don't count", () => {
+    const h = run([start, m("sys", BOT, "Q?\n-# Check 2 of 4", true)]);
+    expect(h.progress.diagnoseAsked).toBe(0);
+    expect(h.botTurns).toBe(0);
+  });
+});
+
+describe("buildThreadHistory: previousQuestionId", () => {
+  const bot = (id: string, content: string): ThreadMessage => m(id, BOT, content);
+  const op = (id: string, content: string): ThreadMessage => m(id, OP, content);
+  const ofRun = (messages: ThreadMessage[]) => {
+    const trigger = op("last", "reply");
+    return buildThreadHistory([...messages, trigger], ctx(trigger)).previousQuestionId;
+  };
+
+  it("is the bot's latest message when that is a diagnose question", () => {
+    expect(ofRun([op(THREAD, "x"), bot("b1", "Q?\n-# Check 1 of 4")])).toBe("b1");
+    expect(ofRun([op(THREAD, "x"), bot("b1", "Q?\n-# Check 1 of 4"), op("o", "y"), bot("b2", "Q2?\n-# Check 2 of 4")])).toBe("b2");
+  });
+  it("is undefined when the latest bot message was an answer, a clarify, or there is none", () => {
+    expect(ofRun([op(THREAD, "x"), bot("b1", "Q?\n-# Check 1 of 4"), bot("b2", "Answer.")])).toBeUndefined();
+    expect(ofRun([op(THREAD, "x"), bot("b1", "Q?\n-# Quick question")])).toBeUndefined();
+    expect(ofRun([op(THREAD, "x")])).toBeUndefined();
+  });
+  it("ignores system messages and other authors", () => {
+    expect(ofRun([op(THREAD, "x"), bot("b1", "Q?\n-# Check 1 of 4"), m("s", BOT, "added", true), m("o2", "100000000000000009", "chatter")])).toBe("b1");
   });
 });

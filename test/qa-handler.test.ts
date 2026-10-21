@@ -61,6 +61,8 @@ interface MsgOpts {
   title?: string;
   isThread?: boolean;
   postFails?: boolean;
+  /** clearButtons rejects (to prove a failed edit never blocks the new post). */
+  clearFails?: boolean;
 }
 
 function forumWhere(over: Partial<{ ownerId: string; appliedTags: string[]; isStarter: boolean }> = {}): Where {
@@ -69,6 +71,7 @@ function forumWhere(over: Partial<{ ownerId: string; appliedTags: string[]; isSt
 
 function message(o: MsgOpts = {}) {
   const posted: Posted[] = [];
+  const order: string[] = []; // "post" / "clear", in the order they happened
   const where = o.where ?? forumWhere();
   const thread: ThreadLike | null =
     where.kind === "forum-thread"
@@ -76,6 +79,7 @@ function message(o: MsgOpts = {}) {
       : null;
   const record = (kind: Posted["kind"]) => async (msg: OutgoingMessage) => {
     if (o.postFails) throw new Error("Missing Permissions");
+    order.push("post");
     posted.push({ kind, msg });
   };
   const authorId = o.authorId ?? OP;
@@ -98,9 +102,13 @@ function message(o: MsgOpts = {}) {
     channelId: "c1",
     target: { reply: record("reply"), send: record("send") },
     fetchThreadMessages: vi.fn(async () => o.threadMessages ?? []),
+    clearButtons: vi.fn(async (_id: string) => {
+      order.push("clear");
+      if (o.clearFails) throw new Error("Unknown Message");
+    }),
     sendTyping: vi.fn(async () => {}),
   };
-  return { m, posted };
+  return { m, posted, order };
 }
 
 const starterMsgs = (content = SECRET): ThreadMessage[] => [{ id: POST, authorId: OP, content }];
@@ -126,7 +134,7 @@ describe("forum: new posts", () => {
     expect(posted[0]!.msg.content).toBe("Go to Billing.");
     expect(posted[0]!.msg.allowedMentions).toEqual({ parse: [], repliedUser: false });
     expect(posted[0]!.msg.components?.[0]?.toJSON().components).toMatchObject([{ custom_id: "qa:solved" }, { custom_id: "qa:help" }]);
-    expect(t.state.get(POST)).toEqual({ botTurns: 1, last: "answered" });
+    expect(t.state.get(POST)).toEqual({ botTurns: 1, last: "answered", summary: "S" });
     expect(t.escalator.handoff).not.toHaveBeenCalled();
   });
 
@@ -137,16 +145,24 @@ describe("forum: new posts", () => {
     expect(m.sendTyping).toHaveBeenCalled();
   });
 
-  it("a clarifying question has no buttons, and the next OP message is told a clarify just happened", async () => {
-    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "Which error?", summary: "S" }, answered()] });
+  it("a clarifying question has no buttons and ends with the 'Quick question' marker", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "Which error?", summary: "S" }] });
     const first = newPost();
     await t.handler.handleMessage(first.m);
     expect(first.posted[0]!.msg.components).toBeUndefined();
-    expect(t.state.priorClarify(POST)).toBe(true);
+    expect(first.posted[0]!.msg.content).toBe("Which error?\n-# Quick question");
+    expect(t.state.get(POST)?.last).toBe("clarify");
+  });
 
-    const second = message({ id: "m2", threadMessages: [...starterMsgs(), { id: "b1", authorId: BOT, content: "Which error?" }] });
+  it("the next message learns a clarify was used from the thread's marker, not from memory", async () => {
+    const t = setup({ answers: [answered()] });
+    // no in-memory state at all: this is what a restart looks like
+    const second = message({
+      id: "m2",
+      threadMessages: [...starterMsgs(), { id: "b1", authorId: BOT, content: "Which error?\n-# Quick question" }, { id: "m2", authorId: OP, content: "idk" }],
+    });
     await t.handler.handleMessage(second.m);
-    expect(t.answer.mock.calls[1]![0].progress?.clarifyUsed).toBe(true);
+    expect(t.answer.mock.calls[0]![0].progress).toEqual({ diagnoseAsked: 0, clarifyUsed: true });
   });
 
   it("not_covered → handoff to staff; the handler itself posts nothing", async () => {
@@ -467,5 +483,251 @@ describe("logging", () => {
     const dump = t.logs.join("\n");
     for (const secret of [SECRET, "Jane", OP, OTHER, BOT, POST, "discord.com"]) expect(dump).not.toContain(secret);
     expect(dump).toContain("handled");
+  });
+});
+
+describe("guided troubleshooting", () => {
+  const diagnose = (reply = "Go to Settings, then Phone System. What color is the banner at the top of the page?", summary = "S"): AnswerResult => ({
+    ok: true,
+    outcome: "diagnose",
+    reply,
+    kbIds: ["a2p-041"],
+    summary,
+  });
+  const botMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: BOT, content });
+  const opMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: OP, content });
+  const walk = (asked: number): ThreadMessage[] => {
+    const out: ThreadMessage[] = [...starterMsgs("my texts aren't sending")];
+    for (let i = 1; i <= asked; i++) out.push(botMsg(`b${i}`, `Question ${i}?\n-# Check ${i} of 4`), opMsg(`o${i}`, `answer ${i}`));
+    return out;
+  };
+
+  it("posts the question numbered, with only 'Still need help', as a reply that can't ping", async () => {
+    const t = setup({ answers: [diagnose()] });
+    const { m, posted } = message({ id: POST, where: forumWhere({ isStarter: true }), threadMessages: starterMsgs("my texts aren't sending") });
+    await t.handler.handleMessage(m);
+
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.kind).toBe("reply");
+    expect(posted[0]!.msg.content).toBe("Go to Settings, then Phone System. What color is the banner at the top of the page?\n-# Check 1 of 4");
+    expect(posted[0]!.msg.components?.[0]?.toJSON().components).toMatchObject([{ custom_id: "qa:help", label: "Still need help" }]);
+    expect(posted[0]!.msg.allowedMentions).toEqual({ parse: [], repliedUser: false });
+    expect(t.state.get(POST)).toMatchObject({ botTurns: 1, last: "diagnose" });
+    expect(t.escalator.handoff).not.toHaveBeenCalled();
+  });
+
+  it("numbers each question from the thread's markers, so a restart mid-walk-through carries on at the right number", async () => {
+    const t = setup({ answers: [diagnose("Third question?")] });
+    // no in-memory state: this is the first event after a restart, with two questions already asked
+    const { m, posted } = message({ id: "o3", threadMessages: [...walk(2), opMsg("o3", "green")] });
+    await t.handler.handleMessage(m);
+    expect(t.answer.mock.calls[0]![0].progress).toEqual({ diagnoseAsked: 2, clarifyUsed: false });
+    expect(posted[0]!.msg.content).toBe("Third question?\n-# Check 3 of 4");
+  });
+
+  it("tells the answerer all four questions were asked (so it must answer or hand off), then hands off on not_covered", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", note: "diagnose_cap", summary: "S" }] });
+    const { m, posted } = message({ id: "o5", threadMessages: [...walk(4), opMsg("o5", "idk")] });
+    await t.handler.handleMessage(m);
+    expect(t.answer.mock.calls[0]![0].progress).toEqual({ diagnoseAsked: 4, clarifyUsed: false });
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered");
+    expect(posted).toEqual([]);
+  });
+
+  it("an answer in the middle ends the run: a new symptom starts again at question 1", async () => {
+    const t = setup({ answers: [diagnose("Banner color?")] });
+    const thread: ThreadMessage[] = [...walk(2), botMsg("ans", "Here is the answer."), opMsg("new", "now my import failed")];
+    const { m, posted } = message({ id: "new", threadMessages: thread });
+    await t.handler.handleMessage(m);
+    expect(t.answer.mock.calls[0]![0].progress).toEqual({ diagnoseAsked: 0, clarifyUsed: false });
+    expect(posted[0]!.msg.content.endsWith("-# Check 1 of 4")).toBe(true);
+  });
+
+  it("a member's own '-# Check 4 of 4' line is not counted", async () => {
+    const t = setup({ answers: [diagnose()] });
+    const { m } = message({ id: "o1", threadMessages: [...starterMsgs("x"), opMsg("o1", "hi\n-# Check 4 of 4")] });
+    t.state.seed(POST, 1);
+    await t.handler.handleMessage(m);
+    expect(t.answer.mock.calls[0]![0].progress).toEqual({ diagnoseAsked: 0, clarifyUsed: false });
+  });
+
+  it("the model never sees earlier markers in the history it is given", async () => {
+    const t = setup({ answers: [answered()] });
+    const { m } = message({ id: "o3", threadMessages: [...walk(2), opMsg("o3", "green")] });
+    await t.handler.handleMessage(m);
+    expect(JSON.stringify(t.answer.mock.calls[0]![0].history)).not.toContain("-#");
+  });
+
+  it("remembers the model's case summary for a later hand-off (memory only, forum only)", async () => {
+    const t = setup({ answers: [diagnose("Q?", "Member says texts fail; banner is green."), answered("A.")] });
+    const first = message({ id: POST, where: forumWhere({ isStarter: true }), threadMessages: starterMsgs("x") });
+    await t.handler.handleMessage(first.m);
+    expect(t.state.getSummary(POST)).toBe("Member says texts fail; banner is green.");
+
+    const chatState = setup({ answers: [answered("A.")] });
+    const chat = message({ where: { kind: "other" }, facts: { mentionsBot: true }, content: `<@${BOT}> hi` });
+    await chatState.handler.handleMessage(chat.m);
+    expect(chatState.state.size()).toBe(0);
+  });
+
+  it("a diagnose question in chat is never posted: the answerer downgrades it, and the handler posts the fixed pointer", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", note: "diagnose_chat", summary: "S" }] });
+    const chat = message({ where: { kind: "other" }, facts: { mentionsBot: true }, content: `<@${BOT}> my texts aren't sending` });
+    await t.handler.handleMessage(chat.m);
+    expect(chat.posted.map((p) => p.msg.content)).toEqual([QA_TEXT.chatPointer]);
+    expect(chat.posted[0]!.msg.content).not.toContain("-#");
+  });
+
+  it("a chat clarify carries no marker (there is no thread to count in)", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "Which one?", summary: "S" }] });
+    const chat = message({ where: { kind: "other" }, facts: { mentionsBot: true }, content: `<@${BOT}> help` });
+    await t.handler.handleMessage(chat.m);
+    expect(chat.posted[0]!.msg.content).toBe("Which one?");
+  });
+
+  it("a clarify in the forum ends with its marker; and after it the run says clarify is used", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "What do you need?", summary: "S" }, diagnose("Banner color?")] });
+    const first = message({ id: POST, where: forumWhere({ isStarter: true }), threadMessages: starterMsgs("help") });
+    await t.handler.handleMessage(first.m);
+    expect(first.posted[0]!.msg.content).toBe("What do you need?\n-# Quick question");
+
+    const second = message({ id: "o1", threadMessages: [...starterMsgs("help"), botMsg("b1", "What do you need?\n-# Quick question"), opMsg("o1", "my texts fail")] });
+    await t.handler.handleMessage(second.m);
+    expect(t.answer.mock.calls[1]![0].progress).toEqual({ diagnoseAsked: 0, clarifyUsed: true });
+    expect(second.posted[0]!.msg.content.endsWith("-# Check 1 of 4")).toBe(true);
+  });
+
+  it("logs the outcome code only: never the question, the summary or the member's words", async () => {
+    const t = setup({ answers: [diagnose("QUESTION-TEXT?", "SUMMARY-TEXT")] });
+    const { m } = message({ id: POST, where: forumWhere({ isStarter: true }), content: SECRET, threadMessages: starterMsgs(SECRET) });
+    await t.handler.handleMessage(m);
+    const dump = t.logs.join("\n");
+    for (const secret of ["QUESTION-TEXT", "SUMMARY-TEXT", SECRET]) expect(dump).not.toContain(secret);
+    expect(dump).toContain("diagnose");
+  });
+});
+
+describe("clearing the previous question's button", () => {
+  const botMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: BOT, content });
+  const opMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: OP, content });
+  const afterQuestion = (): ThreadMessage[] => [
+    ...starterMsgs("my texts aren't sending"),
+    botMsg("q1", "Banner color?\n-# Check 1 of 4"),
+    opMsg("o1", "green"),
+  ];
+  const question = (): AnswerResult => ({ ok: true, outcome: "diagnose", reply: "Wallet balance?", kbIds: ["wal-014"], summary: "S" });
+
+  it("on the next question: posts first, then clears the previous question's button", async () => {
+    const t = setup({ answers: [question()] });
+    const { m, posted, order } = message({ id: "o1", threadMessages: afterQuestion() });
+    await t.handler.handleMessage(m);
+    expect(posted[0]!.msg.content).toBe("Wallet balance?\n-# Check 2 of 4");
+    expect(m.clearButtons).toHaveBeenCalledTimes(1);
+    expect(m.clearButtons).toHaveBeenCalledWith("q1");
+    expect(order).toEqual(["post", "clear"]);
+  });
+
+  it("on an answer", async () => {
+    const t = setup({ answers: [answered("Here is the fix.")] });
+    const { m } = message({ id: "o1", threadMessages: afterQuestion() });
+    await t.handler.handleMessage(m);
+    expect(m.clearButtons).toHaveBeenCalledWith("q1");
+  });
+
+  it("on a clarify", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "Which one?", summary: "S" }] });
+    const { m } = message({ id: "o1", threadMessages: afterQuestion() });
+    await t.handler.handleMessage(m);
+    expect(m.clearButtons).toHaveBeenCalledWith("q1");
+  });
+
+  it.each([
+    ["not_covered", { ok: true, outcome: "not_covered", summary: "S" } as AnswerResult],
+    ["account_specific", { ok: true, outcome: "account_specific", summary: "S" } as AnswerResult],
+    ["a model failure", { ok: false, reason: "timeout" } as AnswerResult],
+  ])("on a handoff (%s): after the escalation", async (_n, result) => {
+    const t = setup({ answers: [result] });
+    const { m } = message({ id: "o1", threadMessages: afterQuestion() });
+    await t.handler.handleMessage(m);
+    expect(m.clearButtons).toHaveBeenCalledWith("q1");
+  });
+
+  it("on a handoff at the turn cap (which fetches the thread itself)", async () => {
+    const t = setup();
+    t.state.seed(POST, MAX_BOT_TURNS);
+    const { m } = message({ id: "o1", threadMessages: [...afterQuestion(), { id: "o1", authorId: OP, content: "more" }] });
+    await t.handler.handleMessage(m);
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap");
+    expect(m.clearButtons).toHaveBeenCalledWith("q1");
+  });
+
+  it("only touches the bot's latest message, and only when it was a diagnose question", async () => {
+    for (const earlier of [
+      [...starterMsgs("x"), botMsg("a1", "Here is the answer."), opMsg("o1", "thanks")], // last bot post was an answer
+      [...starterMsgs("x"), botMsg("c1", "Which one?\n-# Quick question"), opMsg("o1", "texts")], // a clarify has no button
+      [...starterMsgs("x"), opMsg("o1", "hello")], // the bot hasn't posted yet
+    ]) {
+      const t = setup({ answers: [answered()] });
+      t.state.seed(POST, 1);
+      const { m } = message({ id: "o1", threadMessages: earlier });
+      await t.handler.handleMessage(m);
+      expect(m.clearButtons).not.toHaveBeenCalled();
+    }
+  });
+
+  it("with several questions in the thread, clears only the newest (older ones were cleared when they were replaced)", async () => {
+    const t = setup({ answers: [question()] });
+    const { m } = message({
+      id: "o2",
+      threadMessages: [...afterQuestion(), botMsg("q2", "Wallet?\n-# Check 2 of 4"), opMsg("o2", "$40")],
+    });
+    await t.handler.handleMessage(m);
+    expect(m.clearButtons).toHaveBeenCalledTimes(1);
+    expect(m.clearButtons).toHaveBeenCalledWith("q2");
+  });
+
+  it("a failed edit never blocks the new post, throws, or alerts; it logs a code only", async () => {
+    const t = setup({ answers: [question()] });
+    const { m, posted } = message({ id: "o1", threadMessages: afterQuestion(), clearFails: true });
+    await expect(t.handler.handleMessage(m)).resolves.toBeUndefined();
+    expect(posted).toHaveLength(1);
+    expect(t.state.get(POST)).toMatchObject({ last: "diagnose" });
+    expect(t.alert).not.toHaveBeenCalled();
+    const dump = t.logs.join("\n");
+    expect(dump).toContain("button_clear_failed");
+    expect(dump).not.toContain("Unknown Message");
+    expect(dump).not.toContain("q1");
+  });
+
+  it("a failed edit also doesn't block a handoff", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "S" }] });
+    const { m } = message({ id: "o1", threadMessages: afterQuestion(), clearFails: true });
+    await expect(t.handler.handleMessage(m)).resolves.toBeUndefined();
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered");
+  });
+
+  it("if the new post itself fails, the previous question keeps its button", async () => {
+    const t = setup({ answers: [question()] });
+    const { m } = message({ id: "o1", threadMessages: afterQuestion(), postFails: true });
+    await t.handler.handleMessage(m);
+    expect(t.alert).toHaveBeenCalledWith("qa_post_failed");
+    expect(m.clearButtons).not.toHaveBeenCalled();
+  });
+
+  it("the rate-limit note is not a question, answer or handoff: nothing is cleared", async () => {
+    const t = setup({ limiter: { max: 1 }, answers: [question()] });
+    const first = message({ id: "o1", threadMessages: afterQuestion() });
+    await t.handler.handleMessage(first.m);
+    const second = message({ id: "o2", threadMessages: afterQuestion() });
+    await t.handler.handleMessage(second.m);
+    expect(second.posted.map((p) => p.msg.content)).toEqual([QA_TEXT.rateLimited]);
+    expect(second.m.clearButtons).not.toHaveBeenCalled();
+  });
+
+  it("chat has no questions to clear", async () => {
+    const t = setup({ answers: [answered()] });
+    const chat = message({ where: { kind: "other" }, facts: { mentionsBot: true }, content: `<@${BOT}> hi` });
+    await t.handler.handleMessage(chat.m);
+    expect(chat.m.clearButtons).not.toHaveBeenCalled();
   });
 });

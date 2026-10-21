@@ -10,6 +10,13 @@ export function buildAnswerRow(): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
+/** Under each guided-troubleshooting question: only "Still need help", so a stuck member can bail out to staff at any step. */
+export function buildHelpOnlyRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(QA_IDS.help).setLabel(QA_LABELS.help).setStyle(ButtonStyle.Secondary),
+  );
+}
+
 /** Staff-only, under the "handing this to the team" message in a Needs Staff post. */
 export function buildMovePrivateRow(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(

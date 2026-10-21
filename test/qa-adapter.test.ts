@@ -163,6 +163,24 @@ describe("toQaMessage: posting and fetching", () => {
   });
 });
 
+describe("clearButtons", () => {
+  it("fetches the bot's earlier message in the post and edits its components to nothing", async () => {
+    const edit = vi.fn(async (_o: unknown) => {});
+    const fetch = vi.fn(async (_id: string) => ({ edit }));
+    const m = toQaMessage(msg({}, thread({ messages: { fetch } })), ids, BOT)!;
+    await m.clearButtons("777");
+    expect(fetch).toHaveBeenCalledWith("777");
+    expect(edit).toHaveBeenCalledWith({ components: [] });
+  });
+
+  it("does nothing outside a forum post, and lets a failure reach the caller (the handler logs a code)", async () => {
+    const chat = toQaMessage(msg({}, plainChannel()), ids, BOT)!;
+    await expect(chat.clearButtons("777")).resolves.toBeUndefined();
+    const failing = toQaMessage(msg({}, thread({ messages: { fetch: vi.fn(async () => Promise.reject(new Error("Unknown Message"))) } })), ids, BOT)!;
+    await expect(failing.clearButtons("777")).rejects.toThrow();
+  });
+});
+
 describe("fetchThreadMessages", () => {
   const dm = (id: string, authorId: string, content: string, system = false) => [id, { id, author: { id: authorId }, content, system }] as const;
 

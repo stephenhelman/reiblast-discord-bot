@@ -7,10 +7,12 @@ import { createLogger, type Logger } from "../logger.js";
 import type { AnswerResult, Answerer, QaFailure } from "./answer.js";
 import type { ThreadLike } from "./buttons.js";
 import type { EscalationReason, Escalator } from "./escalate.js";
-import { buildSingleTurn, buildThreadHistory, type ThreadMessage } from "./history.js";
+import { buildSingleTurn, buildThreadHistory, lastQuestionMessageId, type ThreadMessage } from "./history.js";
 import type { Coalescer, RateLimiter } from "./limits.js";
 import { QA_TEXT } from "./messages.js";
 import { postFixedText, postModelText, type PostTarget } from "./post.js";
+import { CLARIFY_MARKER, diagnoseMarker } from "./markers.js";
+import { NO_PROGRESS, type QuestionProgress } from "./progress.js";
 import type { ThreadStateStore } from "./state.js";
 import {
   decide,
@@ -36,6 +38,8 @@ export interface QaMessage {
   target: PostTarget;
   /** The post's messages (oldest first), forum only. */
   fetchThreadMessages(): Promise<ThreadMessage[]>;
+  /** Removes the buttons from one of the bot's earlier messages in this thread. */
+  clearButtons(messageId: string): Promise<void>;
   sendTyping(): Promise<void>;
 }
 
@@ -73,7 +77,27 @@ export function createQaHandler(opts: {
     }
   }
 
-  async function deliver(result: AnswerResult, surface: "forum" | "chat", m: QaMessage, question: string): Promise<void> {
+  /**
+   * The bot has just posted its next message: take "Still need help" off its previous question. Best effort: a failed edit
+   * never blocks anything and logs a code only.
+   */
+  async function clearPreviousQuestion(m: QaMessage, previousQuestionId: string | undefined): Promise<void> {
+    if (!previousQuestionId) return;
+    try {
+      await m.clearButtons(previousQuestionId);
+    } catch {
+      log.warn("previous question button not cleared", { code: "button_clear_failed" });
+    }
+  }
+
+  async function deliver(
+    result: AnswerResult,
+    surface: "forum" | "chat",
+    m: QaMessage,
+    question: string,
+    progress: QuestionProgress,
+    previousQuestionId: string | undefined,
+  ): Promise<void> {
     const forum = surface === "forum";
     const thread = m.thread;
     const pointer = () => safePost("pointer", () => postFixedText(m.target, QA_TEXT.chatPointer));
@@ -83,6 +107,7 @@ export function createQaHandler(opts: {
       if (forum && thread) {
         await opts.escalator.handoff(thread, reason);
         state.recordPost(thread.id, "other");
+        await clearPreviousQuestion(m, previousQuestionId);
       } else {
         opts.alert(reason); // chat: nothing to escalate, but staff still learn the model is failing
         await pointer();
@@ -93,29 +118,46 @@ export function createQaHandler(opts: {
     switch (result.outcome) {
       case "answered":
         if (await safePost("answer", () => postModelText(m.target, result.reply, { buttons: forum }))) {
-          if (thread) state.recordPost(thread.id, "answered");
+          if (thread) {
+            state.recordPost(thread.id, "answered");
+            await clearPreviousQuestion(m, previousQuestionId);
+          }
         }
         return;
       case "clarify":
-        if (await safePost("answer", () => postModelText(m.target, result.reply))) {
-          if (thread) state.recordPost(thread.id, "clarify");
+        // The counter marker is how the thread remembers this question (forum only; chat has no thread).
+        if (await safePost("answer", () => postModelText(m.target, result.reply, { marker: thread ? CLARIFY_MARKER : undefined }))) {
+          if (thread) {
+            state.recordPost(thread.id, "clarify");
+            await clearPreviousQuestion(m, previousQuestionId);
+          }
         }
         return;
       case "diagnose":
-        if (await safePost("answer", () => postModelText(m.target, result.reply))) {
-          if (thread) state.recordPost(thread.id, "diagnose");
+        // One guided question, numbered, with only "Still need help" so a stuck member can bail out to staff.
+        if (
+          await safePost("answer", () =>
+            postModelText(m.target, result.reply, { buttons: "help", marker: diagnoseMarker(progress.diagnoseAsked + 1) }),
+          )
+        ) {
+          if (thread) {
+            state.recordPost(thread.id, "diagnose");
+            await clearPreviousQuestion(m, previousQuestionId);
+          }
         }
         return;
       case "not_covered":
         if (forum && thread) {
           await opts.escalator.handoff(thread, "not_covered");
           state.recordPost(thread.id, "other");
+          await clearPreviousQuestion(m, previousQuestionId);
         } else await pointer();
         return;
       case "account_specific":
         if (forum && thread) {
           await opts.escalator.accountSpecific(thread, m.author, question);
           state.recordPost(thread.id, "other");
+          await clearPreviousQuestion(m, previousQuestionId);
         } else await pointer();
         return;
     }
@@ -125,6 +167,8 @@ export function createQaHandler(opts: {
     m.sendTyping().catch(() => {});
     const thread = m.thread;
     let turns;
+    let progress: QuestionProgress = NO_PROGRESS;
+    let previousQuestionId: string | undefined;
     if (d.surface === "forum" && thread) {
       const messages = await m.fetchThreadMessages();
       const h = buildThreadHistory(messages, {
@@ -136,6 +180,8 @@ export function createQaHandler(opts: {
       });
       state.seed(thread.id, h.botTurns);
       turns = h.turns;
+      progress = h.progress; // re-derived from the thread's counter markers, so it survives a restart
+      previousQuestionId = h.previousQuestionId;
     } else {
       turns = buildSingleTurn(m.content, botId);
     }
@@ -143,15 +189,16 @@ export function createQaHandler(opts: {
     const result = await opts.answer({
       history: turns,
       surface: d.surface,
-      // Step 3 derives the real counts from the thread; until then only the clarify cap is tracked.
-      progress: { diagnoseAsked: 0, clarifyUsed: d.surface === "forum" && thread ? state.priorClarify(thread.id) : false },
+      progress,
     });
+    // Kept in memory for a hand-off that has no model call of its own (a button click, the turn cap).
+    if (result.ok && thread && d.surface === "forum") state.setSummary(thread.id, result.summary);
     log.info("handled", {
       trigger: d.trigger,
       surface: d.surface,
       outcome: result.ok ? result.outcome : `failed_${result.reason}`,
     });
-    await deliver(result, d.surface, m, turns.at(-1)?.text ?? "");
+    await deliver(result, d.surface, m, turns.at(-1)?.text ?? "", progress, previousQuestionId);
   }
 
   async function dispatch(d: Decision, m: QaMessage): Promise<void> {
@@ -165,6 +212,9 @@ export function createQaHandler(opts: {
         if (m.thread) {
           await opts.escalator.handoff(m.thread, "turn_cap");
           state.recordPost(m.thread.id, "other");
+          // No history was fetched on this path, so look for the previous question now (best effort).
+          const previous = await m.fetchThreadMessages().then((msgs) => lastQuestionMessageId(msgs.filter((x) => x.id !== m.id), botId)).catch(() => undefined);
+          await clearPreviousQuestion(m, previous);
         }
         return;
       case "answer": {

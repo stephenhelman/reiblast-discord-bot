@@ -178,20 +178,45 @@ describe("thread state store", () => {
     expect(s.get("t")).toBeUndefined();
     s.recordPost("t", "answered");
     s.recordPost("t", "clarify");
-    expect(s.get("t")).toEqual({ botTurns: 2, last: "clarify" });
-    expect(s.priorClarify("t")).toBe(true);
-    s.recordPost("t", "answered");
-    expect(s.priorClarify("t")).toBe(false);
-    expect(s.priorClarify("unknown")).toBe(false);
+    expect(s.get("t")).toEqual({ botTurns: 2, last: "clarify", summary: undefined });
+    s.recordPost("t", "diagnose");
+    expect(s.get("t")?.last).toBe("diagnose");
+    expect(s.get("unknown")).toBeUndefined();
+  });
+
+  it("no longer tracks the clarify flag itself: question counts come from the thread's markers", () => {
+    expect("priorClarify" in createThreadStateStore()).toBe(false);
+  });
+
+  it("keeps the latest case summary through later posts and re-counts, and an empty summary clears it", () => {
+    const s = createThreadStateStore();
+    expect(s.getSummary("t")).toBeUndefined();
+    s.setSummary("t", "Member says texts fail.");
+    expect(s.getSummary("t")).toBe("Member says texts fail.");
+    s.recordPost("t", "diagnose");
+    s.seed("t", 3);
+    expect(s.get("t")).toEqual({ botTurns: 3, last: "diagnose", summary: "Member says texts fail." });
+    s.setSummary("t", "Member says texts fail; banner is green.");
+    expect(s.getSummary("t")).toBe("Member says texts fail; banner is green.");
+    s.setSummary("t", "");
+    expect(s.getSummary("t")).toBeUndefined();
+  });
+
+  it("evicts summaries along with their thread (bounded memory)", () => {
+    const s = createThreadStateStore({ max: 1 });
+    s.setSummary("a", "x");
+    s.setSummary("b", "y");
+    expect(s.getSummary("a")).toBeUndefined();
+    expect(s.getSummary("b")).toBe("y");
   });
 
   it("seeds a count from a re-counted thread without losing the last outcome", () => {
     const s = createThreadStateStore();
     s.seed("t", 3);
-    expect(s.get("t")).toEqual({ botTurns: 3, last: "other" });
+    expect(s.get("t")).toEqual({ botTurns: 3, last: "other", summary: undefined });
     s.recordPost("t", "clarify");
     s.seed("t", 4);
-    expect(s.get("t")).toEqual({ botTurns: 4, last: "clarify" });
+    expect(s.get("t")).toEqual({ botTurns: 4, last: "clarify", summary: undefined });
   });
 
   it("evicts the least recently used thread", () => {
