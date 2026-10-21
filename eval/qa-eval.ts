@@ -72,17 +72,25 @@ function check(c: EvalCase, r: AnswerResult): string[] {
     if (r.reply.length > 2000) problems.push(`reply ${r.reply.length} chars (>2000)`);
   }
   if ("reply" in r) {
+    const lower = r.reply.toLowerCase();
+    for (const needle of c.requireInReply ?? []) if (!lower.includes(needle.toLowerCase())) problems.push(`reply lacks "${needle}"`);
+    for (const needle of c.forbidInReply ?? []) if (lower.includes(needle.toLowerCase())) problems.push(`reply contains "${needle}"`);
     if (!r.reply.trim()) problems.push("empty reply");
     if (MENTION.test(r.reply)) problems.push("reply contains a mention");
   }
   return problems;
 }
 
+// Flags: --only=ID,ID filters cases (kept in file order); --once forces 1 run each. First other arg is the results file.
+const only = process.argv.find((a) => a.startsWith("--only="))?.slice(7).split(",");
+const once = process.argv.includes("--once");
+const selected = CASES.filter((c) => !only || only.includes(c.id)).map((c) => (once ? { ...c, runs: 1 } : c));
+
 const results: RunResult[] = [];
-for (const c of CASES) {
+for (const c of selected) {
   for (let run = 1; run <= c.runs; run++) {
     lastUsage = undefined;
-    const result = await answer({ history: c.history, priorClarify: c.priorClarify });
+    const result = await answer({ history: c.history, surface: c.surface ?? "forum", priorClarify: c.priorClarify });
     const problems = check(c, result);
     results.push({ caseId: c.id, run, pass: problems.length === 0, problems, result, usage: lastUsage });
     process.stdout.write(problems.length === 0 ? "." : "F");
@@ -92,7 +100,7 @@ process.stdout.write("\n\n");
 
 const pad = (s: string, n: number) => s.padEnd(n);
 console.log(`${pad("case", 5)} ${pad("group", 14)} ${pad("expect", 17)} ${pad("got", 17)} ${pad("pass", 5)} ${pad("cited", 22)} notes`);
-for (const c of CASES) {
+for (const c of selected) {
   const rs = results.filter((r) => r.caseId === c.id);
   const passed = rs.filter((r) => r.pass).length;
   const got = [...new Set(rs.map((r) => (r.result.ok ? r.result.outcome : `ok:false/${r.result.reason}`)))].join("|");
@@ -103,7 +111,7 @@ for (const c of CASES) {
 
 const total = results.length;
 const passedTotal = results.filter((r) => r.pass).length;
-console.log(`\n${passedTotal}/${total} runs passed; ${CASES.filter((c) => results.filter((r) => r.caseId === c.id).every((r) => r.pass)).length}/${CASES.length} cases fully passed`);
+console.log(`\n${passedTotal}/${total} runs passed; ${selected.filter((c) => results.filter((r) => r.caseId === c.id).every((r) => r.pass)).length}/${selected.length} cases fully passed`);
 
 const answeredRuns = results.filter((r) => r.result.ok && r.result.outcome === "answered");
 const withIds = answeredRuns.filter((r) => CASES.find((c) => c.id === r.caseId)?.anyOfIds);
@@ -123,8 +131,8 @@ console.log(`\nok:false results: ${failures.length}`);
 for (const f of failures) console.log(`  ${f.caseId}.${f.run}: ${f.result.ok ? "" : f.result.reason}`);
 if (warnings.length) console.log(`\nanswerer warnings (${warnings.length}):\n${warnings.map((w) => `  ${w}`).join("\n")}`);
 
-const out = process.argv[2];
+const out = process.argv.slice(2).find((a) => !a.startsWith("--"));
 if (out) {
-  writeFileSync(out, JSON.stringify({ cases: CASES.map((c) => ({ id: c.id, history: c.history })), results }, null, 2));
+  writeFileSync(out, JSON.stringify({ cases: selected.map((c) => ({ id: c.id, history: c.history })), results }, null, 2));
   console.log(`\nfull results written to ${out}`);
 }

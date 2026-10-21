@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Kb } from "../kb/load.js";
 import { createLogger, type Logger } from "../logger.js";
-import { buildMessages, buildSystem, type HistoryTurn } from "./prompt.js";
+import { buildMessages, buildSystem, type HistoryTurn, type Surface } from "./prompt.js";
 import { ANSWER_JSON_SCHEMA, modelAnswerSchema } from "./schema.js";
 
 export const MODEL = "claude-haiku-5-5";
@@ -25,6 +25,8 @@ export type AnswerResult =
 export interface AnswerInput {
   /** Thread history, oldest first, ending with the member's new message. */
   history: readonly HistoryTurn[];
+  /** Where the reply will be posted; shapes the closing pointer. */
+  surface: Surface;
   /** The bot's previous turn in this thread was a clarifying question. */
   priorClarify?: boolean;
 }
@@ -51,7 +53,7 @@ export function createAnswerer(opts: { client: QaClient; kb: Pick<Kb, "block" | 
   };
 
   return async function answer(input: AnswerInput): Promise<AnswerResult> {
-    const messages = buildMessages(input.history);
+    const messages = buildMessages(input.history, input.surface);
 
     let response: Anthropic.Message;
     try {

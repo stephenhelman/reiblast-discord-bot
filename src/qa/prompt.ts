@@ -24,7 +24,7 @@ export const RULES = `You are the support assistant for REIblast, a text-messagi
 
 # Reply style (answered and clarify)
 - Answer only what was asked. Do not add advice, navigation, or steps from neighboring entries unless the question asks for them. Aim for under about 600 characters unless the answer genuinely needs steps.
-- When explaining WHY something happened, present the knowledge base explanation as the usual cause, not a diagnosis of their account (for example "Usually that's..."). When the question is about their own money, status, or account, end with one short line saying that if it doesn't match what they're seeing, they can tap "Still need help".
+- When explaining WHY something happened, present the knowledge base explanation as the usual cause, not a diagnosis of their account (for example "Usually that's..."). When the question is about their own money, status, or account, end with one short line saying that if it doesn't match what they're seeing, they can follow the pointer for where the reply is posted. The member's latest message begins with <surface>forum</surface> or <surface>chat</surface>. In the forum the pointer is: tap "Still need help". In chat there are no buttons, so the pointer is: post in the support forum and tag it Support.
 - Plain and friendly. Short paragraphs or simple "-" bullets; **bold** sparingly. No headings, tables, or code blocks.
 - Do not mention the knowledge base, entries, ids, or that you are an AI. Do not promise outcomes or timelines that the entries do not state.
 - If the entry says to contact support or book a call, say so.
@@ -44,6 +44,9 @@ export function buildSystem(kbBlock: string): Anthropic.TextBlockParam[] {
   ];
 }
 
+/** Where the reply will be posted. Passed in the latest user turn (never the system prompt) to keep the cached prefix identical. */
+export type Surface = "forum" | "chat";
+
 export interface HistoryTurn {
   role: "user" | "assistant";
   /** Member text for "user"; the bot's own posted text for "assistant". */
@@ -57,16 +60,18 @@ function esc(text: string): string {
 
 /**
  * Turns thread history into API messages: last MAX_HISTORY_TURNS turns, each capped at MAX_TURN_CHARS, starting
- * on a user turn and ending on one. Throws on a history that cannot end on a user turn (a caller bug, not input).
+ * on a user turn and ending on one. The latest user turn also carries the <surface> flag. Throws on a history that cannot end on a user turn (a caller bug, not input).
  */
-export function buildMessages(history: readonly HistoryTurn[]): Anthropic.MessageParam[] {
+export function buildMessages(history: readonly HistoryTurn[], surface: Surface): Anthropic.MessageParam[] {
   const recent = history.slice(-MAX_HISTORY_TURNS);
   while (recent[0]?.role === "assistant") recent.shift();
   if (recent.length === 0 || recent[recent.length - 1]?.role !== "user") {
     throw new TypeError("history must end with a user turn");
   }
-  return recent.map((t) => ({
-    role: t.role,
-    content: t.role === "user" ? `<member_message>${esc(t.text.slice(0, MAX_TURN_CHARS))}</member_message>` : t.text.slice(0, MAX_TURN_CHARS),
-  }));
+  const last = recent.length - 1;
+  return recent.map((t, i) => {
+    if (t.role === "assistant") return { role: t.role, content: t.text.slice(0, MAX_TURN_CHARS) };
+    const wrapped = `<member_message>${esc(t.text.slice(0, MAX_TURN_CHARS))}</member_message>`;
+    return { role: t.role, content: i === last ? `<surface>${surface}</surface>\n${wrapped}` : wrapped };
+  });
 }
