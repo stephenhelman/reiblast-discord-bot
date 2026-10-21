@@ -64,10 +64,13 @@ interface RunResult {
   usage: CallUsage | undefined;
 }
 
-// Flags: --only=ID,ID filters cases (kept in file order); --once forces 1 run each. First other arg is the results file.
+// Flags: --only=ID,ID filters cases (kept in file order); --once forces 1 run each; --runs=N forces N runs each.
+// The first other arg is the results file.
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice(7).split(",");
 const once = process.argv.includes("--once");
-const selected = CASES.filter((c) => !only || only.includes(c.id)).map((c) => (once ? { ...c, runs: 1 } : c));
+const runsFlag = Number(process.argv.find((a) => a.startsWith("--runs="))?.slice(7));
+const forcedRuns = once ? 1 : Number.isInteger(runsFlag) && runsFlag > 0 ? runsFlag : undefined;
+const selected = CASES.filter((c) => !only || only.includes(c.id)).map((c) => (forcedRuns ? { ...c, runs: forcedRuns } : c));
 
 const results: RunResult[] = [];
 for (const c of selected) {

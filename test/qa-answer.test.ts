@@ -58,6 +58,7 @@ describe("request shape", () => {
     const [body, options] = create.mock.calls[0]!;
     expect(body.model).toBe("claude-haiku-5-5");
     expect(body.max_tokens).toBe(MAX_TOKENS);
+    expect(MAX_TOKENS).toBe(2048);
     expect(options).toEqual({ timeout: TIMEOUT_MS, maxRetries: 1 });
     expect(TIMEOUT_MS).toBe(20_000);
 

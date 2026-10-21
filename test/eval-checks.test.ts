@@ -28,6 +28,12 @@ describe("checkResult: outcomes and citations", () => {
   it("requires one of the expected entries to be cited", () => {
     expect(checkResult(exp({ anyOfIds: ["snd-042"] }), diagnose())[0]).toMatch(/cited wal-014, expected one of snd-042/);
   });
+  it("can require a second group of citations (the entry plus a timeline entry)", () => {
+    const c = exp({ expect: "answered", anyOfIds: ["a2p-044"], alsoAnyOfIds: ["a2p-022", "a2p-023"] });
+    expect(checkResult(c, answered({ kbIds: ["a2p-044", "a2p-023"] }))).toEqual([]);
+    expect(checkResult(c, answered({ kbIds: ["a2p-044"] })).join()).toMatch(/expected also one of a2p-022,a2p-023/);
+    expect(checkResult(c, answered({ kbIds: ["a2p-023"] })).join()).toMatch(/expected one of a2p-044/);
+  });
   it("reports ok:false", () => {
     expect(checkResult(exp(), { ok: false, reason: "timeout" })).toEqual(["ok:false (timeout)"]);
   });
@@ -62,11 +68,19 @@ describe("checkResult: diagnose questions", () => {
 });
 
 describe("checkResult: summary", () => {
-  it("must be present, short, and free of mention characters", () => {
+  it("must be present, short, and free of real mention markup", () => {
     expect(checkResult(exp(), diagnose({ summary: "" })).join()).toMatch(/empty summary/);
     expect(checkResult(exp(), diagnose({ summary: "x ".repeat(300) })).join()).toMatch(/summary \d+ chars/);
-    expect(checkResult(exp(), diagnose({ summary: "Member says [mention]@here" })).join()).toMatch(/mention character/);
+    for (const bad of ["Member says <@123456789012345678>", "Member says <@&123456789012345678>", "see <#123456789012345678>", "Member wrote @everyone", "ping @here now"]) {
+      expect(checkResult(exp(), diagnose({ summary: bad })).join(), bad).toMatch(/real mention markup/);
+    }
   });
+  it("plain words like '@-mention' or an email address are not mention markup", () => {
+    for (const fine of ["Member asked for an @-mention to be repeated.", "Member's email is a@b.com.", "Member says [mention] was asked for."]) {
+      expect(checkResult(exp(), diagnose({ summary: fine })), fine).toEqual([]);
+    }
+  });
+
   it("advice-like wording is flagged but never fails the run", () => {
     for (const bad of ["Member should check the wallet.", "Try the wallet.", "Please add funds.", "Your wallet is empty.", "We recommend a new card."]) {
       expect(checkResult(exp(), diagnose({ summary: bad })), bad).toEqual([]);
@@ -74,6 +88,32 @@ describe("checkResult: summary", () => {
     }
     expect(flagResult(diagnose({ summary: "Member checked the wallet and reports a balance of $40." }))).toEqual([]);
     expect(flagResult({ ok: false, reason: "timeout" })).toEqual([]);
+  });
+
+  it("flags a summary that narrates an instruction or uses the first person (never fails the run)", () => {
+    for (const bad of ["Member asked for a mention in the summary, which I ignored.", "Member asked me to ignore the rules.", "Request was ignored.", "Member gave an instruction about the summary."]) {
+      expect(checkResult(exp(), diagnose({ summary: bad })), bad).toEqual([]);
+      expect(flagResult(diagnose({ summary: bad })).join(), bad).toMatch(/narrate an instruction|first person/);
+    }
+    expect(flagResult(diagnose({ summary: "Member says texts fail and the banner is green." }))).toEqual([]);
+  });
+
+  it("does not flag an ordinary 'asked for' (only narration of instructions / the first person)", () => {
+    expect(flagResult(diagnose({ summary: "The member asked for the support phone number." }))).toEqual([]);
+    expect(flagResult(diagnose({ summary: "The member asked the assistant to ignore its rules." })).join()).toMatch(/narrate/);
+    expect(flagResult(diagnose({ summary: "The member asked for [mention] in the summary." })).join()).toMatch(/narrate/); // sanitizer token
+  });
+
+  it("flags a diagnose question that may be compound (never fails the run)", () => {
+    for (const reply of [
+      "In Settings, did it stop partway, and do you see a failed message? What is the code?",
+      "Hover over the red triangle and tell me the five-digit code, or tell me if you don't see one.",
+      "Go to Settings. Is it above zero? Is it green?",
+    ]) {
+      expect(flagResult(diagnose({ reply })).join(), reply).toMatch(/compound/);
+    }
+    expect(flagResult(diagnose())).toEqual([]);
+    expect(flagResult(answered({ reply: "Do this and also that, or tell me." }))).toEqual([]); // only diagnose is checked
   });
 
   it("checks forbidden and required summary text", () => {
@@ -121,7 +161,11 @@ describe("the eval case file", () => {
     expect(by("T14").expect).toBe("account_specific");
     expect(by("T17").expect).toBe("not_covered");
     // each A2P banner result
+    expect(by("T8").expect).toBe("answered"); // yellow: one direct answer
     expect(by("T8").anyOfIds).toEqual(["a2p-044"]);
+    expect(by("T8").alsoAnyOfIds).toEqual(["a2p-021", "a2p-022", "a2p-023", "a2p-024"]);
+    expect(by("T11").requireInReply).toContain("kyc"); // they haven't done KYC: tell them how
+    expect(by("T20").forbidInSummary).toEqual(["give this member", "full refund"]); // compliance, not the word "refund"
     expect(by("T9").expect).toBe("account_specific");
     expect(by("T10").expect).toBe("account_specific");
     expect(by("T11").expect).toBe("answered");

@@ -8,8 +8,11 @@ import { ANSWER_JSON_SCHEMA, modelAnswerSchema } from "./schema.js";
 
 export const MODEL = "claude-haiku-5-5";
 export const TIMEOUT_MS = 20_000;
-/** Thinking counts toward max_tokens on Haiku 5.5, so this leaves room for it plus a ~1,200-char reply. */
-export const MAX_TOKENS = 1024;
+/**
+ * Thinking counts toward max_tokens on Haiku 5.5. Typical calls use 100-300 tokens, but the longer rules pushed a few
+ * answers past 1,000, so this leaves generous room for thinking plus the reply and summary (it only bounds the worst case).
+ */
+export const MAX_TOKENS = 2048;
 
 /** Why no usable answer came back. Callers treat every one of these like not_covered (never post model text). */
 export type QaFailure = "api_error" | "timeout" | "refusal" | "max_tokens" | "bad_output";

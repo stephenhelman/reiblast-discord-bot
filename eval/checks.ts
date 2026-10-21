@@ -10,6 +10,8 @@ export interface EvalExpectation {
   expectAny?: Outcome[];
   /** For answered / diagnose: at least one of these entries must be cited. */
   anyOfIds?: string[];
+  /** A second required group: at least one of these must ALSO be cited (e.g. the entry plus a timeline entry). */
+  alsoAnyOfIds?: string[];
   /** Case-insensitive text the reply must contain (all of them / at least one). */
   requireInReply?: string[];
   requireAnyInReply?: string[];
@@ -20,6 +22,8 @@ export interface EvalExpectation {
 }
 
 const MENTION = /@everyone|@here|<@/i;
+/** Real mention markup only: user / role / channel mentions and literal @everyone / @here. Plain words like "@-mention" don't count. */
+const MENTION_MARKUP = /<@!?\d+>|<@&\d+>|<#\d+>|@everyone|@here\b/i;
 
 /** A diagnose question must tell the member where to look. */
 export const NAVIGATION_CUES = ["settings", "hover", "red triangle", "wallet", "billing", "phone system", "conversation", "banner", "bulk actions", "contacts", "trust settings"];
@@ -39,6 +43,7 @@ export function checkResult(c: EvalExpectation, r: AnswerResult): string[] {
   // Questions and answers
   if (r.outcome === "answered" || r.outcome === "diagnose") {
     if (c.anyOfIds && !r.kbIds.some((id) => c.anyOfIds!.includes(id))) problems.push(`cited ${r.kbIds.join(",")}, expected one of ${c.anyOfIds.join(",")}`);
+    if (c.alsoAnyOfIds && !r.kbIds.some((id) => c.alsoAnyOfIds!.includes(id))) problems.push(`cited ${r.kbIds.join(",")}, expected also one of ${c.alsoAnyOfIds.join(",")}`);
   }
   if ("reply" in r) {
     if (!r.reply.trim()) problems.push("empty reply");
@@ -58,7 +63,7 @@ export function checkResult(c: EvalExpectation, r: AnswerResult): string[] {
   // Summary: written every turn, neutral, safe
   if (!r.summary.trim()) problems.push("empty summary");
   if (r.summary.length > SUMMARY_MAX) problems.push(`summary ${r.summary.length} chars (>${SUMMARY_MAX})`);
-  if (/@|<[@#]/.test(r.summary)) problems.push("summary contains a mention character");
+  if (MENTION_MARKUP.test(r.summary)) problems.push("summary contains real mention markup");
   for (const needle of c.forbidInSummary ?? []) if (has(r.summary, needle)) problems.push(`summary contains "${needle}"`);
   if (c.requireAnyInSummary && !c.requireAnyInSummary.some((n) => has(r.summary, n))) problems.push(`summary has none of: ${c.requireAnyInSummary.join(" | ")}`);
 
@@ -68,11 +73,21 @@ export function checkResult(c: EvalExpectation, r: AnswerResult): string[] {
 }
 
 /**
- * Soft findings reported next to the results but never failing a run: a blunt word list, so it can over-flag.
- * Currently: the summary reads like advice or addresses the member.
+ * Soft findings reported next to the results but never failing a run: blunt word lists, so they can over-flag.
+ * - the summary reads like advice or addresses the member
+ * - the summary narrates an instruction / the rules, or is written in the first person
+ * - a diagnose question may be compound (more than one thing asked)
  */
 export function flagResult(r: AnswerResult): string[] {
   if (!r.ok) return [];
-  const hit = ADVICE.exec(r.summary);
-  return hit ? [`summary may read as advice / address the member: "${hit[0]}"`] : [];
+  const flags: string[] = [];
+  const advice = ADVICE.exec(r.summary);
+  if (advice) flags.push(`summary may read as advice / address the member: "${advice[0]}"`);
+  const narration = /\b(I|me|my)\b|\b(ignored|instruction|instructed|the rules|asked (?:me|the assistant))\b|\[(?:role )?mention\]/.exec(r.summary);
+  if (narration) flags.push(`summary may narrate an instruction or use the first person: "${narration[0]}"`);
+  if (r.outcome === "diagnose") {
+    const compound = /\btell me\b|\b(?:and|or) (?:do|did|are|is|can|have) you\b|\?[^?]*\?/i.exec(r.reply);
+    if (compound) flags.push(`diagnose question may be compound: "${compound[0].trim()}"`);
+  }
+  return flags;
 }
