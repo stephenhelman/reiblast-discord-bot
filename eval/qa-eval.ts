@@ -90,7 +90,7 @@ const results: RunResult[] = [];
 for (const c of selected) {
   for (let run = 1; run <= c.runs; run++) {
     lastUsage = undefined;
-    const result = await answer({ history: c.history, surface: c.surface ?? "forum", priorClarify: c.priorClarify });
+    const result = await answer({ history: c.history, surface: c.surface ?? "forum", progress: c.progress });
     const problems = check(c, result);
     results.push({ caseId: c.id, run, pass: problems.length === 0, problems, result, usage: lastUsage });
     process.stdout.write(problems.length === 0 ? "." : "F");

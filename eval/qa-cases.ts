@@ -1,11 +1,13 @@
 import type { HistoryTurn, Surface } from "../src/qa/prompt.js";
+import type { QuestionProgress } from "../src/qa/progress.js";
 import type { Outcome } from "../src/qa/schema.js";
 
 export interface EvalCase {
   id: string;
   group: "answerable" | "chat" | "account" | "why-vs-change" | "not-covered" | "vague" | "adversarial";
   history: HistoryTurn[];
-  priorClarify?: boolean;
+  /** Question counts already used in the run (forum). */
+  progress?: QuestionProgress;
   expect: Outcome;
   /** For expect "answered": the result must cite at least one of these. */
   anyOfIds?: string[];
@@ -76,7 +78,7 @@ export const CASES: EvalCase[] = [
       { role: "assistant", text: "Can you tell me more about what isn't working, like an error message or where you're stuck?" },
       { role: "user", text: "idk its just broken" },
     ],
-    priorClarify: true,
+    progress: { diagnoseAsked: 0, clarifyUsed: true },
     expect: "not_covered",
     runs: 1,
   },

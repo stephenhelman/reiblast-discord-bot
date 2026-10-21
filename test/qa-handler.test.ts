@@ -26,7 +26,7 @@ interface Posted {
 
 function setup(over: { answers?: AnswerResult[]; limiter?: { max: number }; answerImpl?: Answerer } = {}) {
   const queue = [...(over.answers ?? [])];
-  const answer = vi.fn(over.answerImpl ?? (async () => queue.shift() ?? ({ ok: true, outcome: "not_covered" } as AnswerResult)));
+  const answer = vi.fn(over.answerImpl ?? (async () => queue.shift() ?? ({ ok: true, outcome: "not_covered", summary: "S" } as AnswerResult)));
   const escalator = { handoff: vi.fn(async () => {}), accountSpecific: vi.fn(async () => {}) };
   const alert = vi.fn();
   const state = createThreadStateStore();
@@ -104,7 +104,7 @@ function message(o: MsgOpts = {}) {
 }
 
 const starterMsgs = (content = SECRET): ThreadMessage[] => [{ id: POST, authorId: OP, content }];
-const answered = (reply = "Go to Billing."): AnswerResult => ({ ok: true, outcome: "answered", reply, kbIds: ["wal-001"] });
+const answered = (reply = "Go to Billing."): AnswerResult => ({ ok: true, outcome: "answered", reply, kbIds: ["wal-001"], summary: "S" });
 
 describe("forum: new posts", () => {
   const newPost = (over: MsgOpts = {}) =>
@@ -118,7 +118,7 @@ describe("forum: new posts", () => {
     expect(t.answer).toHaveBeenCalledTimes(1);
     expect(t.answer.mock.calls[0]![0]).toMatchObject({
       surface: "forum",
-      priorClarify: false,
+      progress: { diagnoseAsked: 0, clarifyUsed: false },
       history: [{ role: "user", text: `Title: Texts not sending\n\n${SECRET}` }],
     });
     expect(posted).toHaveLength(1);
@@ -138,7 +138,7 @@ describe("forum: new posts", () => {
   });
 
   it("a clarifying question has no buttons, and the next OP message is told a clarify just happened", async () => {
-    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "Which error?" }, answered()] });
+    const t = setup({ answers: [{ ok: true, outcome: "clarify", reply: "Which error?", summary: "S" }, answered()] });
     const first = newPost();
     await t.handler.handleMessage(first.m);
     expect(first.posted[0]!.msg.components).toBeUndefined();
@@ -146,11 +146,11 @@ describe("forum: new posts", () => {
 
     const second = message({ id: "m2", threadMessages: [...starterMsgs(), { id: "b1", authorId: BOT, content: "Which error?" }] });
     await t.handler.handleMessage(second.m);
-    expect(t.answer.mock.calls[1]![0].priorClarify).toBe(true);
+    expect(t.answer.mock.calls[1]![0].progress?.clarifyUsed).toBe(true);
   });
 
   it("not_covered → handoff to staff; the handler itself posts nothing", async () => {
-    const t = setup({ answers: [{ ok: true, outcome: "not_covered" }] });
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "S" }] });
     const { m, posted } = newPost();
     await t.handler.handleMessage(m);
     expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered");
@@ -158,7 +158,7 @@ describe("forum: new posts", () => {
   });
 
   it("account_specific → private-thread escalation with the asker and their question", async () => {
-    const t = setup({ answers: [{ ok: true, outcome: "account_specific" }] });
+    const t = setup({ answers: [{ ok: true, outcome: "account_specific", summary: "S" }] });
     const { m, posted } = newPost();
     await t.handler.handleMessage(m);
     expect(t.escalator.accountSpecific).toHaveBeenCalledWith(m.thread, { id: OP, displayName: "Jane" }, `Title: Texts not sending\n\n${SECRET}`);
@@ -360,8 +360,8 @@ describe("chat and other channels", () => {
   });
 
   it.each([
-    ["not_covered", { ok: true, outcome: "not_covered" }],
-    ["account_specific", { ok: true, outcome: "account_specific" }],
+    ["not_covered", { ok: true, outcome: "not_covered", summary: "S" }],
+    ["account_specific", { ok: true, outcome: "account_specific", summary: "S" }],
   ] as const)("%s → the fixed forum pointer, no escalation", async (_n, result) => {
     const t = setup({ answers: [result as AnswerResult] });
     const { m, posted } = chat();
@@ -460,7 +460,7 @@ describe("coalescing", () => {
 
 describe("logging", () => {
   it("logs codes and counts only: never message text, names or IDs", async () => {
-    const t = setup({ answers: [answered(`REPLY-${SECRET}`), { ok: true, outcome: "account_specific" }, { ok: false, reason: "timeout" }] });
+    const t = setup({ answers: [answered(`REPLY-${SECRET}`), { ok: true, outcome: "account_specific", summary: "S" }, { ok: false, reason: "timeout" }] });
     t.state.seed(POST, 1);
     for (const id of ["a", "b", "c"]) await t.handler.handleMessage(message({ id, content: SECRET }).m);
     await t.handler.handleMessage(message({ authorId: OTHER, content: SECRET }).m);

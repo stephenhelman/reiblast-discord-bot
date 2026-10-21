@@ -167,3 +167,23 @@ A: Text or call 915-800-8266 (text is preferred), email support@mail.reiblast.ap
 ### a2p-040
 Q: Is there a guide I can reference for A2P registration?
 A: Yes. There's an A2P Basics download in the course resources that walks through the essentials of getting your registration approved.
+
+### a2p-041
+Q: How do I see whether my A2P registration is approved?
+A: In your CRM, go to Settings, then Phone System. You'll land on your phone numbers. If you have a phone number, a banner at the top of the page shows where your registration stands, and its color is what matters: red means it hasn't been started, yellow or amber means it's pending, and green means it's fully approved. If you don't have a phone number yet, either KYC verification isn't finished or your A2P registration hasn't been started.
+
+### a2p-042
+Q: I don't see a phone number in Settings, then Phone System. What does that mean?
+A: It's one of two things. First, KYC verification may not be complete: go to Settings, then Phone System, then Additional Settings, then KYC Verification and look for the green Verified badge. If it isn't verified yet, finish KYC, because a phone number can't be added until you do. Second, if KYC already shows Verified and you still have no phone number, it means REIblast hasn't started your A2P registration yet.
+
+### a2p-043
+Q: The banner at the top of Settings, then Phone System is red. What does that mean?
+A: Red means you have a phone number, but your A2P registration hasn't been submitted yet. This is rare, since your phone number is normally added and your registration submitted on the same day.
+
+### a2p-044
+Q: The banner at the top of Settings, then Phone System is yellow or amber. What does that mean?
+A: Yellow or amber means your A2P registration is pending. In the same menu (Settings, then Phone System), open the Trust settings to see the status of your brand registration and your campaign registration separately. Brand and campaign are reviewed one after the other, so one can be approved while the other is still waiting.
+
+### a2p-045
+Q: The banner at the top of Settings, then Phone System is green. What does that mean?
+A: Green means your A2P registration is fully approved, so A2P isn't what is stopping your texts. The next thing to check is your wallet: go to Settings, then Billing, then Wallet and Transactions and see whether your balance is above zero.

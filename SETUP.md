@@ -126,7 +126,7 @@ checklist). It needs a support **forum**, a locked **Support** channel for priva
 - Members of the **staff role** or the **support role** can use the staff buttons (Move to private, Close).
 
 **Check it**
-1. `npm run kb:check` → `kb ok: 250 entries …`.
+1. `npm run kb:check` → `kb ok: 255 entries …`.
 2. Start the bot. The log shows `setup check passed`, or `setup check found problems problems=…` with static codes (and a
    `qa_misconfigured` alert in the staff log): `tag_*_not_in_forum` (wrong tag ID), `forum_missing_*` / `support_channel_missing_*`
    (a permission above), `support_role_not_mentionable`, `*_not_found` / `*_wrong_type` (wrong channel or role ID).

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const OUTCOMES = ["answered", "clarify", "not_covered", "account_specific"] as const;
+export const OUTCOMES = ["answered", "clarify", "diagnose", "not_covered", "account_specific"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 /**
@@ -13,8 +13,10 @@ export const ANSWER_JSON_SCHEMA = {
     outcome: { type: "string", enum: [...OUTCOMES] },
     reply: { type: "string" },
     kbIds: { type: "array", items: { type: "string" } },
+    /** Neutral case summary for staff, written every turn, used only at handoff. */
+    summary: { type: "string" },
   },
-  required: ["outcome", "reply", "kbIds"],
+  required: ["outcome", "reply", "kbIds", "summary"],
   additionalProperties: false,
 } as const;
 
@@ -23,6 +25,7 @@ export const modelAnswerSchema = z
     outcome: z.enum(OUTCOMES),
     reply: z.string(),
     kbIds: z.array(z.string()),
+    summary: z.string(),
   })
   .strict();
 

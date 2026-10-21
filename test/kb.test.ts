@@ -108,11 +108,28 @@ describe("validateEntries / renderKbBlock", () => {
 describe("loadKb", () => {
   it("loads the real knowledge base", () => {
     const kb = loadKb();
-    expect(kb.entries).toHaveLength(250);
+    expect(kb.entries).toHaveLength(255);
     expect(Object.keys(kb.counts)).toEqual(CATEGORIES.map((c) => c.file));
-    expect(kb.ids.size).toBe(250);
+    expect(kb.ids.size).toBe(255);
     expect(kb.hash).toMatch(/^[0-9a-f]{12}$/);
-    expect(kb.block.split("\n")).toHaveLength(250);
+    expect(kb.block.split("\n")).toHaveLength(255);
+  });
+
+  it("has the A2P status entries appended (a2p-041 to a2p-045) without renumbering the others", () => {
+    const kb = loadKb();
+    const get = (id: string) => kb.entries.find((x) => x.id === id)!;
+    expect(kb.entries.filter((x) => x.category === "a2p-kyc").map((x) => x.id).slice(-6)).toEqual(["a2p-040", "a2p-041", "a2p-042", "a2p-043", "a2p-044", "a2p-045"]);
+    expect(get("a2p-039").q).toBe("How do I contact REIblast support?");
+    for (const phrase of ["Settings, then Phone System", "banner", "red", "yellow", "green"]) expect(get("a2p-041").a).toContain(phrase);
+    // what each result means
+    expect(get("a2p-042").a).toMatch(/KYC Verification/);
+    expect(get("a2p-042").a).toMatch(/REIblast hasn't started your A2P registration/);
+    expect(get("a2p-043").a).toMatch(/hasn't been submitted/);
+    expect(get("a2p-044").a).toMatch(/Trust settings/);
+    expect(get("a2p-044").a).toMatch(/brand/);
+    expect(get("a2p-044").a).toMatch(/campaign/);
+    expect(get("a2p-045").a).toMatch(/fully approved/);
+    expect(get("a2p-045").a).toMatch(/Wallet and Transactions/);
   });
 
   it("real KB text carries no mentions and none of the retired phrasing", () => {

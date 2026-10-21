@@ -101,6 +101,11 @@ export function createQaHandler(opts: {
           if (thread) state.recordPost(thread.id, "clarify");
         }
         return;
+      case "diagnose":
+        if (await safePost("answer", () => postModelText(m.target, result.reply))) {
+          if (thread) state.recordPost(thread.id, "diagnose");
+        }
+        return;
       case "not_covered":
         if (forum && thread) {
           await opts.escalator.handoff(thread, "not_covered");
@@ -138,7 +143,8 @@ export function createQaHandler(opts: {
     const result = await opts.answer({
       history: turns,
       surface: d.surface,
-      priorClarify: d.surface === "forum" && thread ? state.priorClarify(thread.id) : false,
+      // Step 3 derives the real counts from the thread; until then only the clarify cap is tracked.
+      progress: { diagnoseAsked: 0, clarifyUsed: d.surface === "forum" && thread ? state.priorClarify(thread.id) : false },
     });
     log.info("handled", {
       trigger: d.trigger,

@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Kb } from "../kb/load.js";
 import { createLogger, type Logger } from "../logger.js";
 import { buildMessages, buildSystem, type HistoryTurn, type Surface } from "./prompt.js";
+import { MAX_DIAGNOSE, NO_PROGRESS, type QuestionProgress } from "./progress.js";
+import { sanitizeSummary, stripSubtext } from "./sanitize.js";
 import { ANSWER_JSON_SCHEMA, modelAnswerSchema } from "./schema.js";
 
 export const MODEL = "claude-haiku-5-5";
@@ -13,22 +15,25 @@ export const MAX_TOKENS = 1024;
 export type QaFailure = "api_error" | "timeout" | "refusal" | "max_tokens" | "bad_output";
 
 /** A guardrail changed what the model said. Logged as a reason code. */
-export type AnswerNote = "no_valid_kb_ids" | "repeat_clarify";
+export type AnswerNote = "no_valid_kb_ids" | "repeat_clarify" | "diagnose_cap" | "diagnose_chat";
 
+/** Every ok result carries the model's case summary, sanitised (plain text, no mentions, at most 500 characters; may be empty). */
 export type AnswerResult =
-  | { ok: true; outcome: "answered"; reply: string; kbIds: string[] }
-  | { ok: true; outcome: "clarify"; reply: string }
-  /** No model text is carried: the caller posts its fixed template. */
-  | { ok: true; outcome: "not_covered" | "account_specific"; note?: AnswerNote }
+  | { ok: true; outcome: "answered"; reply: string; kbIds: string[]; summary: string }
+  | { ok: true; outcome: "clarify"; reply: string; summary: string }
+  /** One guided-troubleshooting question. `kbIds` are the entries it is drawn from. */
+  | { ok: true; outcome: "diagnose"; reply: string; kbIds: string[]; summary: string }
+  /** No model reply text is carried: the caller posts its fixed template. */
+  | { ok: true; outcome: "not_covered" | "account_specific"; note?: AnswerNote; summary: string }
   | { ok: false; reason: QaFailure };
 
 export interface AnswerInput {
   /** Thread history, oldest first, ending with the member's new message. */
   history: readonly HistoryTurn[];
-  /** Where the reply will be posted; shapes the closing pointer. */
+  /** Where the reply will be posted; shapes the closing pointer and whether questions are allowed. */
   surface: Surface;
-  /** The bot's previous turn in this thread was a clarifying question. */
-  priorClarify?: boolean;
+  /** Question counts in the current run (forum only; chat has none). */
+  progress?: QuestionProgress;
 }
 
 /** The slice of the SDK we use, so tests can fake it. */
@@ -53,7 +58,8 @@ export function createAnswerer(opts: { client: QaClient; kb: Pick<Kb, "block" | 
   };
 
   return async function answer(input: AnswerInput): Promise<AnswerResult> {
-    const messages = buildMessages(input.history, input.surface);
+    const progress = input.progress ?? NO_PROGRESS;
+    const messages = buildMessages(input.history, input.surface, progress);
 
     let response: Anthropic.Message;
     try {
@@ -92,38 +98,46 @@ export function createAnswerer(opts: { client: QaClient; kb: Pick<Kb, "block" | 
       return fail("bad_output", usage);
     }
     if (!parsed.success) return fail("bad_output", usage);
-    const { outcome, reply } = parsed.data;
+    const { outcome } = parsed.data;
+    const reply = stripSubtext(parsed.data.reply);
+    const summary = sanitizeSummary(parsed.data.summary);
+    const validIds = [...new Set(parsed.data.kbIds)].filter((id) => kb.ids.has(id));
 
     let result: AnswerResult;
     let note: AnswerNote | undefined;
-    let validIds = 0;
+    const downgrade = (n: AnswerNote): AnswerResult => {
+      note = n;
+      return { ok: true, outcome: "not_covered", note: n, summary };
+    };
 
     if (outcome === "answered") {
-      const ids = [...new Set(parsed.data.kbIds)].filter((id) => kb.ids.has(id));
-      validIds = ids.length;
-      if (ids.length === 0) {
-        // An answer that cites nothing real is a guess by another name.
-        note = "no_valid_kb_ids";
-        result = { ok: true, outcome: "not_covered", note };
-      } else if (!reply.trim()) {
-        return fail("bad_output", usage);
-      } else {
-        result = { ok: true, outcome: "answered", reply: reply.trim(), kbIds: ids };
-      }
+      // An answer that cites nothing real is a guess by another name.
+      if (validIds.length === 0) result = downgrade("no_valid_kb_ids");
+      else if (!reply) return fail("bad_output", usage);
+      else result = { ok: true, outcome: "answered", reply, kbIds: validIds, summary };
     } else if (outcome === "clarify") {
-      if (input.priorClarify) {
-        note = "repeat_clarify";
-        result = { ok: true, outcome: "not_covered", note };
-      } else if (!reply.trim()) {
-        return fail("bad_output", usage);
-      } else {
-        result = { ok: true, outcome: "clarify", reply: reply.trim() };
-      }
+      if (progress.clarifyUsed) result = downgrade("repeat_clarify");
+      else if (!reply) return fail("bad_output", usage);
+      else result = { ok: true, outcome: "clarify", reply, summary };
+    } else if (outcome === "diagnose") {
+      // Questions need a thread to answer in, are capped, and must come from a real KB check.
+      if (input.surface === "chat") result = downgrade("diagnose_chat");
+      else if (progress.diagnoseAsked >= MAX_DIAGNOSE) result = downgrade("diagnose_cap");
+      else if (validIds.length === 0) result = downgrade("no_valid_kb_ids");
+      else if (!reply) return fail("bad_output", usage);
+      else result = { ok: true, outcome: "diagnose", reply, kbIds: validIds, summary };
     } else {
-      result = { ok: true, outcome };
+      result = { ok: true, outcome, summary };
     }
 
-    log.info("answered", { model_outcome: outcome, outcome: result.ok ? result.outcome : "", kb_ids: validIds, ...(note ? { note } : {}), ...usage });
+    log.info("answered", {
+      model_outcome: outcome,
+      outcome: result.ok ? result.outcome : "",
+      kb_ids: validIds.length,
+      summary_chars: summary.length,
+      ...(note ? { note } : {}),
+      ...usage,
+    });
     return result;
   };
 }

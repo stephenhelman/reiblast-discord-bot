@@ -9,7 +9,7 @@ describe("buildMessages", () => {
     const out = buildMessages(history, "forum");
     expect(out.length).toBeLessThanOrEqual(MAX_HISTORY_TURNS);
     expect(out[0]?.role).toBe("user");
-    expect(out.at(-1)).toEqual({ role: "user", content: "<surface>forum</surface>\n<member_message>latest</member_message>" });
+    expect(out.at(-1)).toEqual({ role: "user", content: "<surface>forum</surface>\n<progress diagnose_asked=\"0\" diagnose_max=\"4\" clarify_used=\"false\"/>\n<member_message>latest</member_message>" });
     // earlier user turns carry no surface flag
     expect(out.slice(0, -1).every((m) => !String(m.content).includes("<surface>"))).toBe(true);
   });
@@ -32,10 +32,10 @@ describe("buildMessages", () => {
     const out = buildMessages(history, "forum");
     expect(out).toHaveLength(MAX_HISTORY_TURNS);
     expect(out[0]).toEqual({ role: "user", content: "<member_message>Title: Texts not sending\n\nORIGINAL-POST</member_message>" });
-    expect(out.at(-1)).toEqual({ role: "user", content: "<surface>forum</surface>\n<member_message>member 9</member_message>" });
+    expect(out.at(-1)).toEqual({ role: "user", content: "<surface>forum</surface>\n<progress diagnose_asked=\"0\" diagnose_max=\"4\" clarify_used=\"false\"/>\n<member_message>member 9</member_message>" });
     // the middle was dropped, the most recent turns were kept, and the order is preserved
     expect(JSON.stringify(out)).not.toContain("bot 1<");
-    expect(out.slice(1).map((m) => String(m.content).replace(/<surface>.*<\/surface>\n/, "").replace(/<[^>]*>/g, ""))).toEqual(
+    expect(out.slice(1).map((m) => String(m.content).replace(/<surface>.*<\/surface>\n(<progress[^>]*\/>\n)?/, "").replace(/<[^>]*>/g, ""))).toEqual(
       history.slice(-(MAX_HISTORY_TURNS - 1)).map((t) => t.text),
     );
   });
@@ -108,15 +108,20 @@ describe("system prompt", () => {
 });
 
 describe("answer schema", () => {
-  it("requires every field and forbids extras (what the API schema promises)", () => {
-    expect(ANSWER_JSON_SCHEMA.required).toEqual(["outcome", "reply", "kbIds"]);
+  it("requires every field (including the case summary) and forbids extras", () => {
+    expect(ANSWER_JSON_SCHEMA.required).toEqual(["outcome", "reply", "kbIds", "summary"]);
     expect(ANSWER_JSON_SCHEMA.additionalProperties).toBe(false);
     expect(ANSWER_JSON_SCHEMA.properties.outcome.enum).toEqual([...OUTCOMES]);
+    expect(OUTCOMES).toContain("diagnose");
   });
 
   it("accepts a valid object and rejects the rest", () => {
-    expect(modelAnswerSchema.safeParse({ outcome: "clarify", reply: "?", kbIds: [] }).success).toBe(true);
-    expect(modelAnswerSchema.safeParse({ outcome: "nope", reply: "", kbIds: [] }).success).toBe(false);
-    expect(modelAnswerSchema.safeParse({ outcome: "clarify", reply: "?", kbIds: [1] }).success).toBe(false);
+    const ok = { outcome: "clarify", reply: "?", kbIds: [], summary: "s" };
+    expect(modelAnswerSchema.safeParse(ok).success).toBe(true);
+    expect(modelAnswerSchema.safeParse({ ...ok, outcome: "diagnose" }).success).toBe(true);
+    expect(modelAnswerSchema.safeParse({ ...ok, outcome: "nope" }).success).toBe(false);
+    expect(modelAnswerSchema.safeParse({ ...ok, kbIds: [1] }).success).toBe(false);
+    expect(modelAnswerSchema.safeParse({ outcome: "clarify", reply: "?", kbIds: [] }).success).toBe(false); // no summary
+    expect(modelAnswerSchema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
   });
 });
