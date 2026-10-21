@@ -1,8 +1,9 @@
-import { ChannelType, type Client } from "discord.js";
+import { ChannelType, type Client, type ThreadChannel } from "discord.js";
 import type { Config } from "../config.js";
 import { loadKb, type Kb } from "../kb/load.js";
 import { createLogger } from "../logger.js";
 import { createAnswerer, createAnthropicClient } from "../qa/answer.js";
+import { createIntake, createSummarizer } from "../qa/intake.js";
 import { createAnswerButtonHandler } from "../qa/buttons.js";
 import { createEscalator } from "../qa/escalate.js";
 import { createQaHandler, type QaHandler } from "../qa/handler.js";
@@ -14,7 +15,7 @@ import { createStaffLog } from "../qa/stafflog.js";
 import { createRefReader } from "../qa/threadref.js";
 import type { TriggerConfig } from "../qa/triggers.js";
 import { createStaffLogSender } from "./staff-alert.js";
-import { checkQaSetup, createFetchOldest, toAnswerButton, toStaffButton, type QaIds } from "./qa-adapter.js";
+import { checkQaSetup, createFetchOldest, fetchThreadMessages, toAnswerButton, toStaffButton, type QaIds } from "./qa-adapter.js";
 import { registerQaListeners } from "./qa-listeners.js";
 import type { ButtonInteraction } from "discord.js";
 
@@ -68,12 +69,22 @@ export function createQa(client: Client, config: Config, kb: Kb, alert: (code: s
       },
     });
     const escalator = createEscalator({ tags, supportRoleId: config.DISCORD_SUPPORT_ROLE_ID, createPrivateThread, staffLog, alert });
+    const state = createThreadStateStore();
+    const answer = createAnswerer({ client: createAnthropicClient(config.ANTHROPIC_API_KEY), kb });
+    const intake = createIntake({
+      state,
+      summarize: createSummarizer(answer),
+      botId,
+      // The button adapter hands us the real thread channel; ThreadLike is just the slice the handlers use.
+      fetchMessages: (thread) => fetchThreadMessages(thread as unknown as ThreadChannel),
+    });
     const handler = createQaHandler({
       botId,
       tags,
-      answer: createAnswerer({ client: createAnthropicClient(config.ANTHROPIC_API_KEY), kb }),
+      answer,
       limiter: createRateLimiter(),
-      state: createThreadStateStore(),
+      state,
+      intake,
       coalesce: createCoalescer((err) => log.error("answer run failed", { error: err instanceof Error ? err.name : "unknown" })),
       escalator,
       alert,
@@ -81,7 +92,7 @@ export function createQa(client: Client, config: Config, kb: Kb, alert: (code: s
     const answerButtons = createAnswerButtonHandler({
       tags,
       staffRoleId: config.DISCORD_STAFF_ROLE_ID,
-      escalate: ({ thread }) => escalator.handoff(thread, "help_button"),
+      escalate: async ({ thread }) => escalator.handoff(thread, "help_button", await intake.contextFor(thread)),
       alert,
     });
     const staffButtons = createStaffButtonHandler({

@@ -3,7 +3,9 @@ import type { QaFailure } from "./answer.js";
 import type { ThreadLike } from "./buttons.js";
 import { buildMovePrivateRow } from "./components.js";
 import { QA_TEXT } from "./messages.js";
-import { postFixedText, threadTarget } from "./post.js";
+import type { IntakeContext } from "./intake.js";
+import { postFixedText, postModelText, threadTarget } from "./post.js";
+import { sanitizeSummary } from "./sanitize.js";
 import type { PrivateThreadCreator } from "./private-thread.js";
 import type { StaffLog } from "./stafflog.js";
 import { swapTags } from "./tags.js";
@@ -62,6 +64,29 @@ export function createEscalator(opts: {
     }
   }
 
+  /**
+   * For a troubleshooting thread only: the case summary (model text, so it can't ping) behind a fixed label, then the fixed
+   * ask for what staff need. Each step is best effort.
+   */
+  async function postIntake(thread: ThreadLike, ctx: IntakeContext | undefined): Promise<void> {
+    if (!ctx?.troubleshooting) return;
+    const summary = ctx.summary ? sanitizeSummary(ctx.summary) : "";
+    if (summary) {
+      try {
+        await postModelText(threadTarget(thread), `${QA_TEXT.caseSummaryLabel}\n${summary}`);
+      } catch (err) {
+        log.error("case summary post failed", { error: err instanceof Error ? err.name : "unknown" });
+        opts.alert("qa_post_failed");
+      }
+    }
+    try {
+      await postFixedText(threadTarget(thread), QA_TEXT.intakeAsk, { first: "send" });
+    } catch (err) {
+      log.error("intake ask post failed", { error: err instanceof Error ? err.name : "unknown" });
+      opts.alert("qa_post_failed");
+    }
+  }
+
   async function postPrivateNote(thread: ThreadLike, privateThreadId: string): Promise<void> {
     try {
       await postFixedText(threadTarget(thread), QA_TEXT.privateNote(privateThreadId), { first: "send" });
@@ -72,17 +97,21 @@ export function createEscalator(opts: {
   }
 
   return {
-    /** not_covered, "Still need help", turn cap, or a model failure. Never throws. */
-    async handoff(thread: ThreadLike, reason: EscalationReason): Promise<void> {
+    /**
+     * not_covered, "Still need help", turn cap, or a model failure. Never throws. For a troubleshooting thread the
+     * hand-off also carries the case summary and the intake ask.
+     */
+    async handoff(thread: ThreadLike, reason: EscalationReason, intake?: IntakeContext): Promise<void> {
       await swapToNeedsStaff(thread);
       await postHandoff(thread);
+      await postIntake(thread, intake);
       opts.staffLog.needsStaff(reason, thread.url);
       if (reason.startsWith("qa_")) opts.alert(reason);
       log.info("handed to staff", { reason });
     },
 
     /** account_specific: private thread with the member; falls back to the normal handoff if that fails. Never throws. */
-    async accountSpecific(thread: ThreadLike, asker: Member, question: string): Promise<void> {
+    async accountSpecific(thread: ThreadLike, asker: Member, question: string, intake?: IntakeContext): Promise<void> {
       await swapToNeedsStaff(thread);
       try {
         const priv = await opts.createPrivateThread({
@@ -90,6 +119,8 @@ export function createEscalator(opts: {
           member: asker,
           source: { postId: thread.id, url: thread.url },
           question,
+          // Troubleshooting threads only: the summary goes in the private thread (never the public note), with the intake ask.
+          ...(intake?.troubleshooting ? { intakeAsk: true, ...(intake.summary ? { summary: intake.summary } : {}) } : {}),
         });
         rememberPrivate(thread.id, priv.url);
         await postPrivateNote(thread, priv.id);
@@ -99,6 +130,7 @@ export function createEscalator(opts: {
         log.error("private thread failed, falling back to handoff", { error: err instanceof Error ? err.name : "unknown" });
         opts.alert("qa_escalation_failed");
         await postHandoff(thread);
+        await postIntake(thread, intake);
         opts.staffLog.needsStaff("account_specific_private_failed", thread.url);
       }
     },

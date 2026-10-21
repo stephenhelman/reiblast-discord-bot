@@ -24,10 +24,13 @@ interface Posted {
   msg: OutgoingMessage;
 }
 
-function setup(over: { answers?: AnswerResult[]; limiter?: { max: number }; answerImpl?: Answerer } = {}) {
+const NO_INTAKE = { troubleshooting: false } as const;
+
+function setup(over: { answers?: AnswerResult[]; limiter?: { max: number }; answerImpl?: Answerer; intake?: (...a: unknown[]) => Promise<unknown> } = {}) {
   const queue = [...(over.answers ?? [])];
   const answer = vi.fn(over.answerImpl ?? (async () => queue.shift() ?? ({ ok: true, outcome: "not_covered", summary: "S" } as AnswerResult)));
-  const escalator = { handoff: vi.fn(async () => {}), accountSpecific: vi.fn(async () => {}) };
+  const escalator = { handoff: vi.fn(async (..._a: unknown[]) => {}), accountSpecific: vi.fn(async (..._a: unknown[]) => {}) };
+  const intake = { contextFor: vi.fn(over.intake ?? (async (..._a: unknown[]) => NO_INTAKE)) };
   const alert = vi.fn();
   const state = createThreadStateStore();
   const logs: string[] = [];
@@ -45,10 +48,11 @@ function setup(over: { answers?: AnswerResult[]; limiter?: { max: number }; answ
     state,
     coalesce: createCoalescer(),
     escalator,
+    intake: intake as never,
     alert,
     logger,
   });
-  return { handler, answer, escalator, alert, state, logs };
+  return { handler, answer, escalator, intake, alert, state, logs };
 }
 
 interface MsgOpts {
@@ -169,7 +173,7 @@ describe("forum: new posts", () => {
     const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "S" }] });
     const { m, posted } = newPost();
     await t.handler.handleMessage(m);
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered");
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered", NO_INTAKE);
     expect(posted).toEqual([]);
   });
 
@@ -177,7 +181,7 @@ describe("forum: new posts", () => {
     const t = setup({ answers: [{ ok: true, outcome: "account_specific", summary: "S" }] });
     const { m, posted } = newPost();
     await t.handler.handleMessage(m);
-    expect(t.escalator.accountSpecific).toHaveBeenCalledWith(m.thread, { id: OP, displayName: "Jane" }, `Title: Texts not sending\n\n${SECRET}`);
+    expect(t.escalator.accountSpecific).toHaveBeenCalledWith(m.thread, { id: OP, displayName: "Jane" }, `Title: Texts not sending\n\n${SECRET}`, NO_INTAKE);
     expect(t.escalator.handoff).not.toHaveBeenCalled();
     expect(posted).toEqual([]);
   });
@@ -186,7 +190,7 @@ describe("forum: new posts", () => {
     const t = setup({ answers: [{ ok: false, reason }] });
     const { m, posted } = newPost();
     await t.handler.handleMessage(m);
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, `qa_${reason}`);
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, `qa_${reason}`, NO_INTAKE);
     expect(posted).toEqual([]);
   });
 
@@ -268,7 +272,7 @@ describe("forum: follow-ups and silence", () => {
     t.state.seed(POST, MAX_BOT_TURNS);
     const { m } = message();
     await t.handler.handleMessage(m);
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap");
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap", NO_INTAKE);
     expect(t.answer).not.toHaveBeenCalled();
   });
 });
@@ -299,7 +303,7 @@ describe("after a restart (bot turn count unknown)", () => {
     const t = setup();
     const { m } = message({ id: "f9", threadMessages: withBotTurns(MAX_BOT_TURNS) });
     await t.handler.handleMessage(m);
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap");
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap", NO_INTAKE);
   });
 
   it("doesn't fetch the thread at all for messages that can't be triggers", async () => {
@@ -530,7 +534,7 @@ describe("guided troubleshooting", () => {
     const { m, posted } = message({ id: "o5", threadMessages: [...walk(4), opMsg("o5", "idk")] });
     await t.handler.handleMessage(m);
     expect(t.answer.mock.calls[0]![0].progress).toEqual({ diagnoseAsked: 4, clarifyUsed: false });
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered");
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered", NO_INTAKE);
     expect(posted).toEqual([]);
   });
 
@@ -657,7 +661,7 @@ describe("clearing the previous question's button", () => {
     t.state.seed(POST, MAX_BOT_TURNS);
     const { m } = message({ id: "o1", threadMessages: [...afterQuestion(), { id: "o1", authorId: OP, content: "more" }] });
     await t.handler.handleMessage(m);
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap");
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap", NO_INTAKE);
     expect(m.clearButtons).toHaveBeenCalledWith("q1");
   });
 
@@ -703,7 +707,7 @@ describe("clearing the previous question's button", () => {
     const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "S" }] });
     const { m } = message({ id: "o1", threadMessages: afterQuestion(), clearFails: true });
     await expect(t.handler.handleMessage(m)).resolves.toBeUndefined();
-    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered");
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered", NO_INTAKE);
   });
 
   it("if the new post itself fails, the previous question keeps its button", async () => {
@@ -729,5 +733,104 @@ describe("clearing the previous question's button", () => {
     const chat = message({ where: { kind: "other" }, facts: { mentionsBot: true }, content: `<@${BOT}> hi` });
     await t.handler.handleMessage(chat.m);
     expect(chat.m.clearButtons).not.toHaveBeenCalled();
+  });
+});
+
+describe("escalation intake", () => {
+  const botMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: BOT, content });
+  const opMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: OP, content });
+  const troubleshooting = (): ThreadMessage[] => [
+    ...starterMsgs("my texts aren't sending"),
+    botMsg("q1", "Banner color?\n-# Check 1 of 4"),
+    opMsg("o1", "green"),
+    botMsg("q2", "Wallet?\n-# Check 2 of 4"),
+    opMsg("o2", "no idea"),
+  ];
+  const CTX = { troubleshooting: true, summary: "CTX-SUMMARY" } as const;
+  const intakeStub = async () => CTX;
+
+  it("not_covered after diagnosing: asks the intake for context with this turn's summary, and hands it to the escalator", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "Fresh summary." }], intake: intakeStub });
+    const { m } = message({ id: "o2", threadMessages: troubleshooting() });
+    await t.handler.handleMessage(m);
+
+    const [thread, known] = t.intake.contextFor.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(thread).toBe(m.thread);
+    expect(known).toMatchObject({ summary: "Fresh summary.", diagnoseTurns: 2 });
+    expect(known.allowRegenerate).not.toBe(false);
+    expect(Array.isArray(known.messages)).toBe(true);
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered", CTX);
+  });
+
+  it("account_specific after diagnosing: same, for the private thread", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "account_specific", summary: "Fresh." }], intake: intakeStub });
+    const { m } = message({ id: "o2", threadMessages: troubleshooting() });
+    await t.handler.handleMessage(m);
+    expect(t.escalator.accountSpecific).toHaveBeenCalledWith(m.thread, { id: OP, displayName: "Jane" }, expect.any(String), CTX);
+    expect(t.intake.contextFor.mock.calls[0]![1]).toMatchObject({ summary: "Fresh.", diagnoseTurns: 2 });
+  });
+
+  it("a plain question (no diagnose turns): the intake is told so and adds nothing", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "S" }] });
+    const { m } = message({ id: POST, where: forumWhere({ isStarter: true }), threadMessages: starterMsgs("do you integrate with Zapier?") });
+    await t.handler.handleMessage(m);
+    expect(t.intake.contextFor.mock.calls[0]![1]).toMatchObject({ diagnoseTurns: 0 });
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "not_covered", NO_INTAKE);
+  });
+
+  it("a model failure: no extra model call is attempted for a summary (the API is failing)", async () => {
+    const t = setup({ answers: [{ ok: false, reason: "timeout" }], intake: intakeStub });
+    const { m } = message({ id: "o2", threadMessages: troubleshooting() });
+    await t.handler.handleMessage(m);
+    expect(t.intake.contextFor.mock.calls[0]![1]).toMatchObject({ allowRegenerate: false, diagnoseTurns: 2 });
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "qa_timeout", CTX);
+  });
+
+  it("the turn cap: fetches the thread once and gives it to the intake and to the escalator", async () => {
+    const t = setup({ intake: intakeStub });
+    t.state.seed(POST, MAX_BOT_TURNS);
+    const { m } = message({ id: "o9", threadMessages: troubleshooting() });
+    await t.handler.handleMessage(m);
+    expect(m.fetchThreadMessages).toHaveBeenCalledTimes(1);
+    expect(Array.isArray((t.intake.contextFor.mock.calls[0]![1] as { messages?: unknown }).messages)).toBe(true);
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap", CTX);
+  });
+
+  it("the turn cap still hands off if the thread can't be fetched", async () => {
+    const t = setup();
+    t.state.seed(POST, MAX_BOT_TURNS);
+    const { m } = message({ id: "o9", threadMessages: [] });
+    (m.fetchThreadMessages as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Missing Access"));
+    await t.handler.handleMessage(m);
+    expect(t.intake.contextFor.mock.calls[0]![1]).toEqual({});
+    expect(t.escalator.handoff).toHaveBeenCalledWith(m.thread, "turn_cap", NO_INTAKE);
+  });
+
+  it("answers, questions and clarifies never touch the intake", async () => {
+    for (const result of [
+      answered(),
+      { ok: true, outcome: "diagnose", reply: "Q?", kbIds: ["x"], summary: "S" } as AnswerResult,
+      { ok: true, outcome: "clarify", reply: "Q?", summary: "S" } as AnswerResult,
+    ]) {
+      const t = setup({ answers: [result] });
+      const { m } = message({ id: "o2", threadMessages: troubleshooting() });
+      await t.handler.handleMessage(m);
+      expect(t.intake.contextFor).not.toHaveBeenCalled();
+    }
+  });
+
+  it("chat never asks for intake context (no hand-offs there)", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "S" }] });
+    const chat = message({ where: { kind: "other" }, facts: { mentionsBot: true }, content: `<@${BOT}> zapier?` });
+    await t.handler.handleMessage(chat.m);
+    expect(t.intake.contextFor).not.toHaveBeenCalled();
+  });
+
+  it("no summary or word of the conversation reaches the logs", async () => {
+    const t = setup({ answers: [{ ok: true, outcome: "not_covered", summary: "SECRET-SUMMARY-WORDS" }], intake: intakeStub });
+    const { m } = message({ id: "o2", content: SECRET, threadMessages: troubleshooting() });
+    await t.handler.handleMessage(m);
+    const dump = t.logs.join("\n");
+    for (const secret of ["SECRET-SUMMARY-WORDS", "CTX-SUMMARY", SECRET]) expect(dump).not.toContain(secret);
   });
 });

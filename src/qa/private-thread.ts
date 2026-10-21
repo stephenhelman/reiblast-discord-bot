@@ -2,6 +2,8 @@ import { ChannelType } from "discord.js";
 import { createLogger, type Logger } from "../logger.js";
 import { buildCloseRow } from "./components.js";
 import { postFixedText, threadTarget, type OutgoingMessage } from "./post.js";
+import { QA_TEXT } from "./messages.js";
+import { sanitizeSummary } from "./sanitize.js";
 import { formatRef, type PrivateThreadReason, type RefReader } from "./threadref.js";
 
 /** Auto-archive after 3 days of inactivity (minutes). */
@@ -41,6 +43,10 @@ export interface PrivateThreadRequest {
   source: { postId: string; url: string };
   /** The member's question, quoted so nobody has to retype it. Never logged. */
   question?: string;
+  /** Troubleshooting threads only: the model's case summary, shown under a fixed label (mentions neutralized again here). */
+  summary?: string;
+  /** Troubleshooting threads only: follow the first message with the fixed intake ask. */
+  intakeAsk?: boolean;
 }
 
 export type PrivateThreadStep = "parent" | "create" | "add_member" | "first_message";
@@ -80,6 +86,8 @@ function firstMessage(req: PrivateThreadRequest, pingRole: boolean, supportRoleI
   const mentions = `${pingRole ? `<@&${supportRoleId}> ` : ""}<@${req.member.id}>`;
   const parts = [`${mentions}\nContinuing from the forum post: <${req.source.url}>`];
   if (req.question?.trim()) parts.push(`Your question:\n${quoteQuestion(req.question)}`);
+  const summary = req.summary ? sanitizeSummary(req.summary) : "";
+  if (summary) parts.push(`${QA_TEXT.privateSummaryLabel}\n${summary}`);
   parts.push("A team member will take it from here.");
   parts.push(formatRef({ reason: req.reason, postId: req.source.postId, memberId: req.member.id }));
   return parts.join("\n\n");
@@ -137,6 +145,15 @@ export function createPrivateThreadCreator(opts: {
         log.warn("cleanup of half-built thread failed", { reason: req.reason });
       }
       throw new PrivateThreadError(step);
+    }
+
+    // The thread is usable without it, so a failed intake ask never undoes the thread.
+    if (req.intakeAsk) {
+      try {
+        await postFixedText(threadTarget(thread), QA_TEXT.intakeAsk, { first: "send" });
+      } catch {
+        log.warn("intake ask not posted", { code: "intake_ask_failed", reason: req.reason });
+      }
     }
 
     opts.refs?.remember(thread.id, { reason: req.reason, postId: req.source.postId, memberId: req.member.id });

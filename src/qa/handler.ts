@@ -7,6 +7,7 @@ import { createLogger, type Logger } from "../logger.js";
 import type { AnswerResult, Answerer, QaFailure } from "./answer.js";
 import type { ThreadLike } from "./buttons.js";
 import type { EscalationReason, Escalator } from "./escalate.js";
+import type { Intake, IntakeKnown } from "./intake.js";
 import { buildSingleTurn, buildThreadHistory, lastQuestionMessageId, type ThreadMessage } from "./history.js";
 import type { Coalescer, RateLimiter } from "./limits.js";
 import { QA_TEXT } from "./messages.js";
@@ -53,6 +54,8 @@ export function createQaHandler(opts: {
   state: ThreadStateStore;
   coalesce: Coalescer;
   escalator: Pick<Escalator, "handoff" | "accountSpecific">;
+  /** Decides whether a hand-off gets the case summary and intake ask (troubleshooting threads only). */
+  intake: Pick<Intake, "contextFor">;
   alert: (code: string) => void;
   logger?: Logger;
 }) {
@@ -97,6 +100,7 @@ export function createQaHandler(opts: {
     question: string,
     progress: QuestionProgress,
     previousQuestionId: string | undefined,
+    known: IntakeKnown,
   ): Promise<void> {
     const forum = surface === "forum";
     const thread = m.thread;
@@ -105,7 +109,9 @@ export function createQaHandler(opts: {
     if (!result.ok) {
       const reason: EscalationReason = `qa_${result.reason satisfies QaFailure}`;
       if (forum && thread) {
-        await opts.escalator.handoff(thread, reason);
+        // The model is failing, so don't spend another call on a summary: use what is remembered, if anything.
+        const intake = await opts.intake.contextFor(thread, { ...known, allowRegenerate: false });
+        await opts.escalator.handoff(thread, reason, intake);
         state.recordPost(thread.id, "other");
         await clearPreviousQuestion(m, previousQuestionId);
       } else {
@@ -148,14 +154,16 @@ export function createQaHandler(opts: {
         return;
       case "not_covered":
         if (forum && thread) {
-          await opts.escalator.handoff(thread, "not_covered");
+          const intake = await opts.intake.contextFor(thread, { ...known, summary: result.summary });
+          await opts.escalator.handoff(thread, "not_covered", intake);
           state.recordPost(thread.id, "other");
           await clearPreviousQuestion(m, previousQuestionId);
         } else await pointer();
         return;
       case "account_specific":
         if (forum && thread) {
-          await opts.escalator.accountSpecific(thread, m.author, question);
+          const intake = await opts.intake.contextFor(thread, { ...known, summary: result.summary });
+          await opts.escalator.accountSpecific(thread, m.author, question, intake);
           state.recordPost(thread.id, "other");
           await clearPreviousQuestion(m, previousQuestionId);
         } else await pointer();
@@ -169,6 +177,7 @@ export function createQaHandler(opts: {
     let turns;
     let progress: QuestionProgress = NO_PROGRESS;
     let previousQuestionId: string | undefined;
+    let known: IntakeKnown = {};
     if (d.surface === "forum" && thread) {
       const messages = await m.fetchThreadMessages();
       const h = buildThreadHistory(messages, {
@@ -182,6 +191,7 @@ export function createQaHandler(opts: {
       turns = h.turns;
       progress = h.progress; // re-derived from the thread's counter markers, so it survives a restart
       previousQuestionId = h.previousQuestionId;
+      known = { messages, diagnoseTurns: h.diagnoseTurns };
     } else {
       turns = buildSingleTurn(m.content, botId);
     }
@@ -198,7 +208,7 @@ export function createQaHandler(opts: {
       surface: d.surface,
       outcome: result.ok ? result.outcome : `failed_${result.reason}`,
     });
-    await deliver(result, d.surface, m, turns.at(-1)?.text ?? "", progress, previousQuestionId);
+    await deliver(result, d.surface, m, turns.at(-1)?.text ?? "", progress, previousQuestionId, known);
   }
 
   async function dispatch(d: Decision, m: QaMessage): Promise<void> {
@@ -210,11 +220,12 @@ export function createQaHandler(opts: {
         return; // resolved by the callers before dispatch
       case "escalate":
         if (m.thread) {
-          await opts.escalator.handoff(m.thread, "turn_cap");
+          // No history was fetched on this path: get it once, for the intake context and the previous question.
+          const messages = await m.fetchThreadMessages().catch(() => undefined);
+          const intake = await opts.intake.contextFor(m.thread, messages ? { messages } : {});
+          await opts.escalator.handoff(m.thread, "turn_cap", intake);
           state.recordPost(m.thread.id, "other");
-          // No history was fetched on this path, so look for the previous question now (best effort).
-          const previous = await m.fetchThreadMessages().then((msgs) => lastQuestionMessageId(msgs.filter((x) => x.id !== m.id), botId)).catch(() => undefined);
-          await clearPreviousQuestion(m, previous);
+          await clearPreviousQuestion(m, messages ? lastQuestionMessageId(messages.filter((x) => x.id !== m.id), botId) : undefined);
         }
         return;
       case "answer": {

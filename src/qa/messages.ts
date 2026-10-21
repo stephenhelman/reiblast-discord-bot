@@ -15,6 +15,13 @@ export const QA_TEXT = {
   handoff: (roleId: string) => `<@&${roleId}> Thanks for your patience. I'm handing this to the team, and someone will follow up here.`,
   /** Public note in the forum post once it moves to a private thread. No details. */
   privateNote: (threadId: string) => `I've moved this to a private thread so the team can look at your account: <#${threadId}>`,
+  /** Posted before the model's case summary in a Needs Staff post (the summary itself goes through the no-ping model-text path). */
+  caseSummaryLabel: "Case summary for the team:",
+  /** The same, inside a private thread's first message. */
+  privateSummaryLabel: "Case summary:",
+  /** Fixed ask, posted after a troubleshooting hand-off, for what staff need to fix it quickly. */
+  intakeAsk:
+    "To help the team fix this faster, if you haven't already, please reply with: the error code and message status, 2–3 example messages from the last 24 hours (who they went to and roughly when), and what you've already tried.",
   /** Last message in a private thread before it is archived and locked. */
   closed: "This thread is now closed. If anything else comes up, please open a new post in the support forum and tag it **Support**.",
 } as const;

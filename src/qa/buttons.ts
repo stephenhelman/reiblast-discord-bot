@@ -10,6 +10,8 @@ import type { TriggerConfig } from "./triggers.js";
 /** The forum post a button was clicked in. */
 export interface ThreadLike {
   id: string;
+  /** The post's title (used when a summary has to be rebuilt from the thread). */
+  name?: string;
   /** Link to the post. */
   url: string;
   ownerId: string | null;

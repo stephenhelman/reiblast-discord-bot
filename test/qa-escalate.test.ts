@@ -190,3 +190,116 @@ describe("moveToPrivate (staff button)", () => {
     await expect(t.esc.moveToPrivate(t.thread, asker)).resolves.toBeUndefined();
   });
 });
+
+describe("troubleshooting hand-offs: case summary and intake ask", () => {
+  const SUMMARY = "Member says texts aren't sending; the banner is green and they could not check the wallet.";
+  const ctx = (over: object = {}) => ({ troubleshooting: true, summary: SUMMARY, ...over }) as const;
+
+  it("posts the template (the one ping), then the labelled summary (no ping), then the fixed intake ask, then logs", async () => {
+    const t = setup();
+    await t.esc.handoff(t.thread, "not_covered", ctx());
+
+    expect(t.order).toEqual(["tags", "post", "post", "post", "log"]);
+    expect(t.sent.map((m) => m.content)).toEqual([QA_TEXT.handoff(ROLE), `${QA_TEXT.caseSummaryLabel}\n${SUMMARY}`, QA_TEXT.intakeAsk]);
+    expect(t.sent[0]!.allowedMentions).toEqual({ parse: [], roles: [ROLE] });
+    // the summary is model text: it goes through the no-ping path; the ask is fixed text: also no ping
+    expect(t.sent[1]!.allowedMentions).not.toHaveProperty("roles");
+    expect(t.sent[1]!.allowedMentions).not.toHaveProperty("users");
+    expect(t.sent[2]!.allowedMentions).toEqual({ parse: [] });
+    expect(t.sent[1]!.components).toBeUndefined();
+    expect(t.staffLog.needsStaff).toHaveBeenCalledWith("not_covered", POST_URL);
+  });
+
+  it("the label is fixed text and the ask names what staff need", () => {
+    expect(QA_TEXT.caseSummaryLabel).toBe("Case summary for the team:");
+    for (const phrase of ["if you haven't already", "error code and message status", "2–3 example messages from the last 24 hours", "who they went to", "what you've already tried"]) {
+      expect(QA_TEXT.intakeAsk).toContain(phrase);
+    }
+  });
+
+  it("without a summary, still posts the intake ask", async () => {
+    const t = setup();
+    await t.esc.handoff(t.thread, "help_button", { troubleshooting: true });
+    expect(t.sent.map((m) => m.content)).toEqual([QA_TEXT.handoff(ROLE), QA_TEXT.intakeAsk]);
+  });
+
+  it("a plain question (no diagnose turns) keeps today's hand-off: no summary, no ask", async () => {
+    for (const intake of [undefined, { troubleshooting: false } as const]) {
+      const t = setup();
+      await t.esc.handoff(t.thread, "not_covered", intake);
+      expect(t.sent.map((m) => m.content)).toEqual([QA_TEXT.handoff(ROLE)]);
+    }
+    const t = setup();
+    await t.esc.handoff(t.thread, "not_covered", { troubleshooting: false, summary: SUMMARY });
+    expect(t.sent).toHaveLength(1);
+  });
+
+  it("neutralizes mentions in the summary once more, and can't carry markers", async () => {
+    const t = setup();
+    await t.esc.handoff(t.thread, "turn_cap", ctx({ summary: "Texts fail <@123456789012345678> @everyone <@&123456789012345678>\n-# Check 4 of 4" }));
+    expect(t.sent[1]!.content).toBe(`${QA_TEXT.caseSummaryLabel}\nTexts fail [mention] [mention] [role mention]`);
+  });
+
+  it("covers every hand-off reason, including model failures", async () => {
+    for (const reason of ["not_covered", "help_button", "turn_cap", "qa_timeout"] as const) {
+      const t = setup();
+      await t.esc.handoff(t.thread, reason, ctx());
+      expect(t.sent).toHaveLength(3);
+    }
+  });
+
+  it("a failed summary or ask never blocks the rest, alerts staff, and never throws", async () => {
+    let n = 0;
+    const t = setup({ send: async () => (++n === 2 ? Promise.reject(new Error("Missing Permissions")) : undefined) });
+    await expect(t.esc.handoff(t.thread, "not_covered", ctx())).resolves.toBeUndefined();
+    expect(t.alert).toHaveBeenCalledWith("qa_post_failed");
+    expect(t.sent.map((m) => m.content)).toContain(QA_TEXT.intakeAsk); // the ask still went out
+    expect(t.staffLog.needsStaff).toHaveBeenCalled();
+  });
+
+  it("never puts the summary in the staff log or an alert", async () => {
+    const t = setup();
+    await t.esc.handoff(t.thread, "not_covered", ctx());
+    expect(JSON.stringify([t.staffLog.needsStaff.mock.calls, t.alert.mock.calls])).not.toContain("banner");
+  });
+});
+
+describe("troubleshooting account_specific: summary goes in the private thread, not the public note", () => {
+  const SUMMARY = "Member says texts aren't sending; banner green, wallet $40, number attached.";
+
+  it("passes the summary and the intake ask to the private thread, and the public note stays detail-free", async () => {
+    const t = setup();
+    await t.esc.accountSpecific(t.thread, asker, QUESTION, { troubleshooting: true, summary: SUMMARY });
+    expect(t.createPrivateThread).toHaveBeenCalledWith({
+      reason: "staff_handoff",
+      member: asker,
+      source: { postId: POST_ID, url: POST_URL },
+      question: QUESTION,
+      intakeAsk: true,
+      summary: SUMMARY,
+    });
+    expect(t.sent.map((m) => m.content)).toEqual([QA_TEXT.privateNote(PRIV_ID)]);
+    expect(JSON.stringify(t.sent)).not.toContain("banner");
+  });
+
+  it("a plain account question is unchanged: no summary, no intake ask", async () => {
+    const t = setup();
+    await t.esc.accountSpecific(t.thread, asker, QUESTION, { troubleshooting: false, summary: SUMMARY });
+    expect(t.createPrivateThread).toHaveBeenCalledWith({ reason: "staff_handoff", member: asker, source: { postId: POST_ID, url: POST_URL }, question: QUESTION });
+  });
+
+  it("without a summary it still asks for the details", async () => {
+    const t = setup();
+    await t.esc.accountSpecific(t.thread, asker, QUESTION, { troubleshooting: true });
+    const arg = (t.createPrivateThread as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(arg.intakeAsk).toBe(true);
+    expect(arg).not.toHaveProperty("summary");
+  });
+
+  it("if the private thread fails, the fallback hand-off carries the summary and the ask in the post", async () => {
+    const t = setup({ create: (async () => Promise.reject(new PrivateThreadError("create"))) as unknown as PrivateThreadCreator });
+    await t.esc.accountSpecific(t.thread, asker, QUESTION, { troubleshooting: true, summary: SUMMARY });
+    expect(t.sent.map((m) => m.content)).toEqual([QA_TEXT.handoff(ROLE), `${QA_TEXT.caseSummaryLabel}\n${SUMMARY}`, QA_TEXT.intakeAsk]);
+    expect(t.alert).toHaveBeenCalledWith("qa_escalation_failed");
+  });
+});
