@@ -17,7 +17,6 @@ const NEEDED = [
   P.ManageThreads, // change a post's tags; archive + lock private threads
   P.CreatePrivateThreads,
   P.SendMessagesInThreads,
-  P.MentionEveryone, // needed to ping a support role that isn't mentionable
 ];
 
 describe("SETUP.md", () => {
@@ -33,6 +32,14 @@ describe("SETUP.md", () => {
     for (const phrase of ["Manage Threads", "Create Private Threads", "Send Messages in Threads", "Read Message History"]) {
       expect(setup).toContain(phrase);
     }
+  });
+
+  it("does not ask for Mention Everyone; the support role must be mentionable instead", () => {
+    const bits = BigInt(/permissions=(\d+)/.exec(setup)![1]!);
+    expect(bits & P.MentionEveryone).toBe(0n);
+    expect(setup).not.toMatch(/\*\*Mention Everyone\*\*/);
+    expect(setup).toMatch(/Allow anyone to @mention this role/);
+    expect(setup).toContain("support_role_not_mentionable");
   });
 
   it("says the Message Content intent is ON", () => {

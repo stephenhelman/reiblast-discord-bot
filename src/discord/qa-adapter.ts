@@ -133,7 +133,7 @@ export function toStaffButton(i: ButtonInteraction): StaffButtonInteractionLike 
 
 /**
  * Startup check: returns problem codes (static strings, no IDs). Catches the quiet failures — wrong tag IDs, a role
- * that can't be pinged, missing permissions — before the first member hits them.
+ * that isn't mentionable, missing permissions — before the first member hits them.
  */
 export async function checkQaSetup(client: Client, ids: QaIds): Promise<string[]> {
   const problems: string[] = [];
@@ -178,9 +178,9 @@ export async function checkQaSetup(client: Client, ids: QaIds): Promise<string[]
 
   const role = await guild.roles.fetch(ids.supportRoleId).catch(() => null);
   if (!role) problems.push("support_role_not_found");
-  else if (!role.mentionable && !me.permissions.has(PermissionFlagsBits.MentionEveryone)) {
-    // Without one of these, the support-role ping silently renders as plain text.
-    problems.push("support_role_not_pingable");
+  else if (!role.mentionable) {
+    // The bot's ping is limited to this one role; Discord only delivers it if the role allows @mentions.
+    problems.push("support_role_not_mentionable");
   }
   return problems;
 }

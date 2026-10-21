@@ -20,7 +20,7 @@ const HINTS: Record<string, string> = {
   unlink_role_discord_unavailable:
     "A staff /unlink cleared the link but the role removal failed on a Discord error. Remove the role by hand.",
   role_discord_unavailable: "Role grant failed on a Discord error or the gateway was not ready.",
-  qa_misconfigured: "Support Q&A setup check found a problem (a tag ID not in the forum, a missing permission, or a support role that can't be pinged). See the bot log for the codes and SETUP.md.",
+  qa_misconfigured: "Support Q&A setup check found a problem (a tag ID not in the forum, a missing permission, or a support role that isn't mentionable). See the bot log for the codes and SETUP.md.",
   qa_api_error: "The AI answer request failed (API error). Affected posts were handed to staff.",
   qa_timeout: "The AI answer request timed out. Affected posts were handed to staff.",
   qa_refusal: "The AI model declined to answer. Affected posts were handed to staff.",

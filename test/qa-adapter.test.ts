@@ -259,8 +259,8 @@ describe("checkQaSetup", () => {
   const ALL_FORUM = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageThreads];
   const ALL_SUPPORT = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.ManageThreads];
 
-  function world(o: { forum?: object | null; support?: object | null; role?: object | null; mePerms?: bigint[]; guild?: boolean; forumPerms?: bigint[]; supportPerms?: bigint[] } = {}) {
-    const me = { permissions: new PermissionsBitField(o.mePerms ?? [PermissionFlagsBits.MentionEveryone]) };
+  function world(o: { forum?: object | null; support?: object | null; role?: object | null; guild?: boolean; forumPerms?: bigint[]; supportPerms?: bigint[] } = {}) {
+    const me = { permissions: new PermissionsBitField([]) };
     const forum =
       o.forum === null
         ? null
@@ -274,7 +274,7 @@ describe("checkQaSetup", () => {
       o.support === null
         ? null
         : { type: ChannelType.GuildText, permissionsFor: () => new PermissionsBitField(o.supportPerms ?? ALL_SUPPORT), ...o.support };
-    const role = o.role === null ? null : { mentionable: false, ...o.role };
+    const role = o.role === null ? null : { mentionable: true, ...o.role };
     const guild = {
       members: { me, fetchMe: vi.fn() },
       roles: { fetch: vi.fn(async () => role) },
@@ -289,9 +289,9 @@ describe("checkQaSetup", () => {
     expect(await checkQaSetup(world(), ids)).toEqual([]);
   });
 
-  it("flags a role that can't be pinged, unless it's mentionable or the bot may mention all roles", async () => {
-    expect(await checkQaSetup(world({ mePerms: [] }), ids)).toEqual(["support_role_not_pingable"]);
-    expect(await checkQaSetup(world({ mePerms: [], role: { mentionable: true } }), ids)).toEqual([]);
+  it("requires the support role to be mentionable, whatever permissions the bot has", async () => {
+    expect(await checkQaSetup(world({ role: { mentionable: false } }), ids)).toEqual(["support_role_not_mentionable"]);
+    expect(await checkQaSetup(world({ role: { mentionable: true } }), ids)).toEqual([]);
   });
 
   it("flags tag IDs that aren't in the forum", async () => {

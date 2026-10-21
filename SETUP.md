@@ -72,14 +72,14 @@ Create a fresh server you own, then:
 
 1. Build the invite URL (replace `APP_ID`):
    ```
-   https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot%20applications.commands&permissions=361045904384
+   https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot%20applications.commands&permissions=361045773312
    ```
    - Scopes: `bot` and `applications.commands` (the second is required for the slash command).
-   - `361045904384` = **Manage Roles** (grant/remove the REIblast role) + **View Channel** + **Send Messages** + **Embed Links** +
+   - `361045773312` = **Manage Roles** (grant/remove the REIblast role) + **View Channel** + **Send Messages** + **Embed Links** +
      **Read Message History** + **Manage Threads** (change a forum post's tags; archive and lock private threads) +
-     **Create Private Threads** + **Send Messages in Threads** (answers in forum posts and in private threads) +
-     **Mention Everyone** (the bot must hold this to ping the support role if that role isn't set mentionable; the bot's
-     messages are otherwise locked to `allowedMentions: { parse: [] }`, so it can never ping @everyone or anyone else).
+     **Create Private Threads** + **Send Messages in Threads** (answers in forum posts and in private threads). The bot does
+     **not** need Mention Everyone: its messages are locked to `allowedMentions: { parse: [] }`, with the support role as the only
+     role it can ever ping (which is why that role must be mentionable, see step 3b).
    - Already invited the bot earlier (it only had Manage Roles + the three basics)? Open this new URL again to update its
      permissions, or tick the same permissions on the bot's role by hand.
 2. Open it, pick your test server, authorize.
@@ -119,15 +119,17 @@ checklist). It needs a support **forum**, a locked **Support** channel for priva
   top-level here and never touches the pins; it only creates threads under it.
 
 **Support role**
-- Copy its ID → `DISCORD_SUPPORT_ROLE_ID`. It is pinged on escalations (and in each private thread's first message). The ping only
-  works if the bot holds **Mention Everyone** (included in the invite integer above) or the role is mentionable.
+- Copy its ID → `DISCORD_SUPPORT_ROLE_ID`. It is pinged on escalations (and in each private thread's first message).
+- **The role must be mentionable:** Server Settings → Roles → the support role → turn on **Allow anyone to @mention this role**.
+  The bot doesn't hold Mention Everyone, so Discord only delivers its ping if the role allows @mentions. The startup setup check
+  verifies this and raises a `qa_misconfigured` alert (`support_role_not_mentionable`) if it isn't.
 - Members of the **staff role** or the **support role** can use the staff buttons (Move to private, Close).
 
 **Check it**
 1. `npm run kb:check` → `kb ok: 250 entries …`.
 2. Start the bot. The log shows `setup check passed`, or `setup check found problems problems=…` with static codes (and a
    `qa_misconfigured` alert in the staff log): `tag_*_not_in_forum` (wrong tag ID), `forum_missing_*` / `support_channel_missing_*`
-   (a permission above), `support_role_not_pingable`, `*_not_found` / `*_wrong_type` (wrong channel or role ID).
+   (a permission above), `support_role_not_mentionable`, `*_not_found` / `*_wrong_type` (wrong channel or role ID).
 3. Optional but recommended on the **test server only**: `npm run verify-private-threads` (creates one private thread under the
    Support channel, checks Discord's behavior, deletes it). After any KB or rules edit run `npm run eval:qa` (see the end of this file).
 4. Walk through [docs/qa-live-test.md](docs/qa-live-test.md).
@@ -318,7 +320,7 @@ Run `npm run kb:check`, then `npm run eval:qa` (real API, about $0.05; needs `AN
 | Boot says `kb invalid: <file>.md:<line>: …` | A `kb/*.md` entry is malformed (or contains an @mention); run `npm run kb:check` |
 | `qa_misconfigured` alert | The startup setup check found a problem: see the codes in the bot log (step 3b) |
 | Bot never answers in the forum | Support tag not on the post, Message Content Intent off, or `setup check` problems; also check `qa_*` alerts |
-| Escalation says "handing this to the team" but nobody was pinged | The bot lacks **Mention Everyone** and the support role isn't mentionable (`support_role_not_pingable`) |
+| Escalation says "handing this to the team" but nobody was pinged | The support role isn't mentionable (turn on "Allow anyone to @mention this role"; the startup check reports `support_role_not_mentionable`) |
 | `qa_tag_swap_failed` alert | The bot lacks **Manage Threads** in the forum, or a tag ID is wrong |
 | `qa_escalation_failed` alert | Private thread couldn't be created: the bot needs **Create Private Threads**, **Send Messages in Threads** and **Manage Threads** in the Support channel |
 | Staff can't see a private thread | The support role needs **Manage Threads** on the Support channel (private threads are only visible to added members and moderators) |

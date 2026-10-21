@@ -89,9 +89,9 @@ what you should see. Tick the box when it matches; write down anything that does
 - [ ] **18. Model failure.** Restart with a wrong `ANTHROPIC_API_KEY`, then ask a question in a Support post → **no model text**; the
   post goes to **Needs Staff** with the handoff message and role ping; staff log shows `📣 Needs Staff · qa_api_error · <link>` plus
   one reason-only `qa_api_error` alert (repeats within 30 minutes are suppressed). Restore the key afterwards.
-- [ ] **19. Setup check.** Remove **Mention Everyone** from the bot's role (with the support role not mentionable) and restart → the log
-  shows `setup check found problems problems=support_role_not_pingable` and the staff log gets a `qa_misconfigured` alert. Put the
-  permission back.
+- [ ] **19. Setup check.** Turn off **Allow anyone to @mention this role** on the support role and restart → the log shows
+  `setup check found problems problems=support_role_not_mentionable` and the staff log gets a `qa_misconfigured` alert. Turn the
+  setting back on.
 
 ---
 
