@@ -23,6 +23,12 @@ const schema = z
       .transform((u) => u.replace(/\/+$/, "")),
     DISCORD_BOT_INBOUND_SECRET: nonEmpty,
     DISCORD_BOT_OUTBOUND_SECRET: nonEmpty,
+    // Optional: only for Vercel preview deployments behind Deployment Protection. Leave unset in production.
+    VERCEL_PROTECTION_BYPASS_SECRET: z
+      .string()
+      .trim()
+      .optional()
+      .transform((v) => (v ? v : undefined)),
     SUPPORT_PHONE: nonEmpty,
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),

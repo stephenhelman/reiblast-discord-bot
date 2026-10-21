@@ -49,6 +49,7 @@ const flow = createVerifyFlow({
   serverClient: createServerClient({
     baseUrl: config.REIBLAST_SERVER_URL,
     secret: config.DISCORD_BOT_INBOUND_SECRET,
+    vercelBypassSecret: config.VERCEL_PROTECTION_BYPASS_SECRET,
   }),
   sessions,
   rules,

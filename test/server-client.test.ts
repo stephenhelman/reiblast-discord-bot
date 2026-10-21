@@ -64,6 +64,58 @@ describe("request shape", () => {
   });
 });
 
+describe("Vercel protection bypass header", () => {
+  const BYPASS = "vercel-bypass-secret-value";
+
+  function withBypass(bypass: string | undefined) {
+    const fetchMock = vi.fn(async (..._a: Parameters<typeof fetch>) => jsonResponse({ result: "linked", reason: "linked" }));
+    const lines: string[] = [];
+    const push = (m: string, f?: Record<string, unknown>) => lines.push(`${m} ${JSON.stringify(f ?? {})}`);
+    const client = createServerClient({
+      baseUrl: "https://app.example.com",
+      secret: SECRET,
+      vercelBypassSecret: bypass,
+      fetch: fetchMock as unknown as typeof fetch,
+      logger: { debug: push, info: push, warn: push, error: push },
+    });
+    return { client, fetchMock, lines };
+  }
+  const headersOf = (f: ReturnType<typeof withBypass>["fetchMock"]) => f.mock.calls[0]![1]?.headers as Record<string, string>;
+
+  it("is sent on verify-start and verify-confirm when configured", async () => {
+    const { client, fetchMock } = withBypass(BYPASS);
+    await client.verifyStart(DISCORD_ID, email);
+    await client.verifyConfirm(DISCORD_ID, email, "123456");
+    for (const call of fetchMock.mock.calls) {
+      const h = call[1]?.headers as Record<string, string>;
+      expect(h["x-vercel-protection-bypass"]).toBe(BYPASS);
+      expect(h["x-reiblast-discord-secret"]).toBe(SECRET); // the real secret is still sent
+    }
+  });
+
+  it.each([[undefined], [""]])("is not sent when unset (%j)", async (value) => {
+    const { client, fetchMock } = withBypass(value);
+    await client.verifyStart(DISCORD_ID, email);
+    expect(Object.keys(headersOf(fetchMock)).map((k) => k.toLowerCase())).not.toContain("x-vercel-protection-bypass");
+  });
+
+  it("is never logged", async () => {
+    const ok = withBypass(BYPASS);
+    await ok.client.verifyStart(DISCORD_ID, email);
+    const failing = createServerClient({
+      baseUrl: "https://app.example.com",
+      secret: SECRET,
+      vercelBypassSecret: BYPASS,
+      fetch: (async () => {
+        throw new Error(`connect failed ${BYPASS}`);
+      }) as unknown as typeof fetch,
+      logger: { debug: (m) => ok.lines.push(m), info: (m) => ok.lines.push(m), warn: (m) => ok.lines.push(m), error: (m) => ok.lines.push(m) },
+    });
+    await failing.verifyStart(DISCORD_ID, email);
+    expect(ok.lines.join("\n")).not.toContain(BYPASS);
+  });
+});
+
 describe("verifyStart reason codes", () => {
   it("code_sent carries phoneLast4", async () => {
     const { client } = respond({ result: "code_sent", reason: "code_sent", phoneLast4: "1234" });

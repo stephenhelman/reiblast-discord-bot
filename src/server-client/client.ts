@@ -3,6 +3,7 @@ import { createLogger, type Logger } from "../logger.js";
 import type { ConfirmOutcome, Identifier, ServerClient, StartOutcome } from "./types.js";
 
 const SECRET_HEADER = "x-reiblast-discord-secret";
+const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 const errorReason = z.enum([
@@ -43,6 +44,8 @@ const confirmSchema = z.union([
 export interface ServerClientOptions {
   baseUrl: string;
   secret: string;
+  /** Vercel "Protection Bypass for Automation" secret, for protected preview deployments. Omit in production. */
+  vercelBypassSecret?: string;
   timeoutMs?: number;
   /** Injectable for tests; defaults to the global fetch. */
   fetch?: typeof fetch;
@@ -60,7 +63,7 @@ export function createServerClient(opts: ServerClientOptions): ServerClient {
   /**
    * POSTs and parses against `schema`. Never branches on the HTTP status (the contract is always-200; the body is
    * the truth). Any transport failure, timeout, or body that isn't a known response shape becomes `internal_error`.
-   * Logs the endpoint and reason only — never the request body, the response body, or the secret.
+   * Logs the endpoint and reason only — never the request body, the response body, or any secret.
    */
   async function call<T extends { result: string; reason: string }>(
     endpoint: "verify-start" | "verify-confirm",
@@ -72,7 +75,11 @@ export function createServerClient(opts: ServerClientOptions): ServerClient {
     try {
       const res = await doFetch(`${opts.baseUrl}${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json", [SECRET_HEADER]: opts.secret },
+        headers: {
+          "content-type": "application/json",
+          [SECRET_HEADER]: opts.secret,
+          ...(opts.vercelBypassSecret ? { [VERCEL_BYPASS_HEADER]: opts.vercelBypassSecret } : {}),
+        },
         body: JSON.stringify(body),
         redirect: "error", // never forward the secret header to a redirect target
         signal: AbortSignal.timeout(timeoutMs),
