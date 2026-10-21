@@ -189,7 +189,7 @@ export const CASES: EvalCase[] = [
     history: [...ask("my texts aren't sending"), bot(Q_BANNER), user("there's no phone number there. I haven't done the KYC thing yet")],
     progress: { diagnoseAsked: 1, clarifyUsed: false },
     expect: "answered", // they said they haven't done KYC: tell them how, don't ask
-    anyOfIds: ["a2p-042", "a2p-005"],
+    anyOfIds: ["a2p-002", "a2p-005", "a2p-006", "a2p-007", "a2p-010", "a2p-042"], // any of the KYC entries
     requireInReply: ["kyc"],
     requireAnyInReply: ["kyc verification", "additional settings"],
     runs: 3,
@@ -213,6 +213,7 @@ export const CASES: EvalCase[] = [
     ],
     progress: { diagnoseAsked: 4, clarifyUsed: false },
     expect: "not_covered", // cap reached: answer or hand off, never a 5th question
+    expectAny: ["not_covered", "account_specific"], // with no information from the member, either hand-off is reasonable
     requireAnyInSummary: ["text"],
     runs: 3,
   },
