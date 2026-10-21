@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
-export const MAX_HISTORY_TURNS = 10;
+export const MAX_HISTORY_TURNS = 16;
 export const MAX_TURN_CHARS = 1500;
 
 /** Constant text: any edit here invalidates the cached prefix (once, on the next call). No dates, no per-call values. */
@@ -59,11 +59,18 @@ function esc(text: string): string {
 }
 
 /**
- * Turns thread history into API messages: last MAX_HISTORY_TURNS turns, each capped at MAX_TURN_CHARS, starting
+ * Turns thread history into API messages: at most MAX_HISTORY_TURNS turns (the first turn pinned plus the latest), each capped at MAX_TURN_CHARS, starting
  * on a user turn and ending on one. The latest user turn also carries the <surface> flag. Throws on a history that cannot end on a user turn (a caller bug, not input).
  */
 export function buildMessages(history: readonly HistoryTurn[], surface: Surface): Anthropic.MessageParam[] {
-  const recent = history.slice(-MAX_HISTORY_TURNS);
+  // Over the limit: keep the latest turns but always pin the first one (the post and its title), so a long thread
+  // never loses what the member originally asked.
+  let recent: HistoryTurn[];
+  if (history.length <= MAX_HISTORY_TURNS) recent = [...history];
+  else {
+    const tail = history.slice(-(MAX_HISTORY_TURNS - 1));
+    recent = history[0]?.role === "user" ? [history[0], ...tail] : tail;
+  }
   while (recent[0]?.role === "assistant") recent.shift();
   if (recent.length === 0 || recent[recent.length - 1]?.role !== "user") {
     throw new TypeError("history must end with a user turn");
