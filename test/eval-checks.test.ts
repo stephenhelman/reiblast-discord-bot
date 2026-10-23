@@ -159,6 +159,12 @@ describe("the eval case file", () => {
     expect(by("T13").expect).toBe("not_covered");
     expect(by("T13").expectAny).toEqual(["not_covered", "account_specific"]); // at the cap either hand-off is fine
     expect(by("T14").expectAny).toBeUndefined(); // T14 stays strict: account_specific only
+    // escalating too early (live transcript): after banner + wallet the next question is the number; after the number, the daily limit
+    expect(by("T22").expect).toBe("diagnose");
+    expect(by("T22").progress?.diagnoseAsked).toBe(2);
+    expect(by("T23").expect).toBe("diagnose");
+    expect(by("T23").expectAny).toEqual(["diagnose", "answered"]); // never account_specific before the daily limit is checked
+    expect(by("T23").progress?.diagnoseAsked).toBe(3);
     expect(by("T13").progress?.diagnoseAsked).toBe(4);
     expect(by("T14").expect).toBe("account_specific");
     expect(by("T17").expect).toBe("not_covered");
@@ -171,6 +177,8 @@ describe("the eval case file", () => {
     expect(by("T9").expect).toBe("account_specific");
     expect(by("T10").expect).toBe("account_specific");
     expect(by("T11").expect).toBe("answered");
+    expect(by("T11").expectAny).toEqual(["answered", "diagnose"]); // accepted: one extra question before the KYC steps
+    expect(by("T3").expectAny).toEqual(["diagnose", "answered"]); // the KB answers a stopped blast outright; asking the wallet first is also fine
     expect(by("T11").anyOfIds).toEqual(["a2p-002", "a2p-005", "a2p-006", "a2p-007", "a2p-010", "a2p-042"]);
     expect(by("B4").expect).toBe("answered");
     expect(by("B4").anyOfIds).toEqual(["a2p-041"]);

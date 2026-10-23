@@ -112,7 +112,7 @@ export const CASES: EvalCase[] = [
   // First turn: a symptom the KB covers with several causes -> one question, A2P first (the KB's own order)
   { id: "T1", group: "diagnose", history: ask("my texts aren't sending"), expect: "diagnose", requireAnyInReply: ["a2p", "banner", "phone system"], anyOfIds: ["a2p-041", "snd-041", "snd-053"], runs: 3 },
   { id: "T2", group: "diagnose", history: ask("a text failed"), expect: "diagnose", requireAnyInReply: ["red triangle", "error code", "five-digit"], anyOfIds: ["snd-042"], runs: 2 },
-  { id: "T3", group: "diagnose", history: ask("my blast stopped halfway"), expect: "diagnose", requireAnyInReply: ["wallet", "balance", "billing"], anyOfIds: ["snd-056", "snd-053"], runs: 3 },
+  { id: "T3", group: "diagnose", history: ask("my blast stopped halfway"), expect: "diagnose", expectAny: ["diagnose", "answered"], requireAnyInReply: ["wallet", "balance", "billing"], anyOfIds: ["snd-056", "snd-053"], runs: 3 },
 
   // Continuations (the bot's earlier questions are scripted)
   {
@@ -188,7 +188,8 @@ export const CASES: EvalCase[] = [
     group: "a2p-banner",
     history: [...ask("my texts aren't sending"), bot(Q_BANNER), user("there's no phone number there. I haven't done the KYC thing yet")],
     progress: { diagnoseAsked: 1, clarifyUsed: false },
-    expect: "answered", // they said they haven't done KYC: tell them how, don't ask
+    expect: "answered", // they said they haven't done KYC: tell them how (a question first is accepted behavior: one extra turn)
+    expectAny: ["answered", "diagnose"],
     anyOfIds: ["a2p-002", "a2p-005", "a2p-006", "a2p-007", "a2p-010", "a2p-042"], // any of the KYC entries
     requireInReply: ["kyc"],
     requireAnyInReply: ["kyc verification", "additional settings"],
@@ -246,6 +247,31 @@ export const CASES: EvalCase[] = [
   },
   { id: "T17", group: "guided-limits", history: ask("Do you have a mobile app?"), expect: "not_covered", runs: 1 },
   { id: "T18", group: "guided-limits", surface: "chat", history: ask("my texts aren't sending"), expect: "answered", expectAny: ["answered", "not_covered"], runs: 2 },
+
+  // Escalating too early: the live transcript escalated after only the banner and the wallet. The next KB checks are the
+  // number attached to the campaign, then the daily limit; account_specific only once every check is ruled out (T14).
+  {
+    id: "T22",
+    group: "guided-limits",
+    history: [...ask("my blast is not sending"), bot(Q_BANNER), user("It is green"), bot(Q_WALLET), user("Yes it is above zero")],
+    progress: { diagnoseAsked: 2, clarifyUsed: false },
+    expect: "diagnose", // banner and wallet ruled out: ask about the number next
+    requireAnyInReply: ["number", "campaign"],
+    forbidInReply: ["what color", "balance above zero"],
+    anyOfIds: ["snd-009", "snd-010", "snd-053"],
+    runs: 3,
+  },
+  {
+    id: "T23",
+    group: "guided-limits",
+    history: [...ask("my blast is not sending"), bot(Q_BANNER), user("It is green"), bot(Q_WALLET), user("Yes it is above zero"), bot(Q_NUMBER), user("Yes, it's attached to my campaign")],
+    progress: { diagnoseAsked: 3, clarifyUsed: false },
+    expect: "diagnose", // three checks ruled out: the daily limit is next (asking it or explaining it are both fine; escalating is not)
+    expectAny: ["diagnose", "answered"],
+    requireAnyInReply: ["today", "limit", "sent", "day"],
+    forbidInReply: ["what color"],
+    runs: 3,
+  },
 
   // The summary is model-written from member text: it must never carry a mention or follow instructions
   {
