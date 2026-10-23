@@ -208,7 +208,11 @@ export function createQaHandler(opts: {
       surface: d.surface,
       outcome: result.ok ? result.outcome : `failed_${result.reason}`,
     });
-    await deliver(result, d.surface, m, turns.at(-1)?.text ?? "", progress, previousQuestionId, known);
+    // The "question" quoted to staff in a private thread. In a walk-through the last message is just an answer to one of the
+    // bot's questions ("Yes it is above zero"), so quote the original post instead; otherwise the message that triggered this.
+    const troubleshooting = (known.diagnoseTurns ?? 0) > 0;
+    const question = (troubleshooting ? turns.find((t) => t.role === "user")?.text : turns.at(-1)?.text) ?? "";
+    await deliver(result, d.surface, m, question, progress, previousQuestionId, known);
   }
 
   async function dispatch(d: Decision, m: QaMessage): Promise<void> {

@@ -834,3 +834,41 @@ describe("escalation intake", () => {
     for (const secret of ["SECRET-SUMMARY-WORDS", "CTX-SUMMARY", SECRET]) expect(dump).not.toContain(secret);
   });
 });
+
+describe("the question quoted in a private thread", () => {
+  const botMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: BOT, content });
+  const opMsg = (id: string, content: string): ThreadMessage => ({ id, authorId: OP, content });
+  const account: AnswerResult = { ok: true, outcome: "account_specific", summary: "S" };
+
+  it("in a walk-through it quotes the original post, not the member's last answer to one of the bot's questions", async () => {
+    const t = setup({ answers: [account] });
+    const { m } = message({
+      id: "o2",
+      content: "Yes it is above zero",
+      threadMessages: [
+        ...starterMsgs("my blast is not sending"),
+        botMsg("q1", "Banner color?\n-# Check 1 of 4"),
+        opMsg("o1", "It is green"),
+        botMsg("q2", "Is your balance above zero?\n-# Check 2 of 4"),
+        opMsg("o2", "Yes it is above zero"),
+      ],
+    });
+    await t.handler.handleMessage(m);
+    expect(t.escalator.accountSpecific).toHaveBeenCalledTimes(1);
+    const question = (t.escalator.accountSpecific.mock.calls[0] as unknown[])[2];
+    expect(question).toBe("Title: Texts not sending\n\nmy blast is not sending");
+    expect(question).not.toContain("above zero");
+  });
+
+  it("otherwise it quotes the message that triggered the answer (unchanged)", async () => {
+    const t = setup({ answers: [account] });
+    const { m } = message({
+      id: "o1",
+      content: "How do I cancel my subscription?",
+      threadMessages: [...starterMsgs("hi"), botMsg("a1", "Here is the answer."), opMsg("o1", "How do I cancel my subscription?")],
+    });
+    t.state.seed(POST, 1);
+    await t.handler.handleMessage(m);
+    expect((t.escalator.accountSpecific.mock.calls[0] as unknown[])[2]).toBe("How do I cancel my subscription?");
+  });
+});
