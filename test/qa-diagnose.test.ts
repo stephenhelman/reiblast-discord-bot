@@ -189,7 +189,7 @@ describe("rules text", () => {
     "When a specific message failed, ask for its error code and status",
     "Banner green: A2P is ruled out, so ask about the wallet next",
     "Banner red, or no phone number although KYC is verified",
-    "(for example, the banner is green, the wallet is funded, the number is attached to the campaign, and the daily limit isn't the cause, but nothing sends; or they fixed their card and the account is still paused), use account_specific",
+    "(for example, they confirmed the banner is green, the wallet is funded, the number is attached to the campaign, and they haven't hit the daily limit, but nothing sends; or they fixed their card and the account is still paused), use account_specific",
     "No phone number and KYC not finished",
     "what should I check first",
     '<progress diagnose_asked="N" diagnose_max="4"',

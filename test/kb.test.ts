@@ -144,6 +144,33 @@ describe("loadKb", () => {
     expect(all).not.toMatch(/Ask Ari/);
   });
 
+  it("never offers a self-service support booking: no Support Calendar, booking link, or support appointment anywhere the bot reads", async () => {
+    const { RULES } = await import("../src/qa/prompt.js");
+    const { QA_TEXT } = await import("../src/qa/messages.js");
+    const offending = /support calendar|booking link|book a (support )?(call|appointment)|support appointment/i;
+    const kb = loadKb();
+    for (const e of kb.entries) expect(`${e.q}\n${e.a}`, e.id).not.toMatch(offending);
+    expect(RULES).not.toMatch(offending);
+    expect(RULES).not.toMatch(/book a call/i);
+    for (const v of Object.values(QA_TEXT)) if (typeof v === "string") expect(v).not.toMatch(offending);
+  });
+
+  it("keeps the CRM's own Calendars entries (the scrub is about support booking only)", () => {
+    const kb = loadKb();
+    expect(kb.entries.find((e) => e.id === "acc-014")?.a).toMatch(/connect calendars/);
+    expect(kb.entries.find((e) => e.id === "app-003")?.a).toMatch(/In Calendars you can set up a personal calendar/);
+  });
+
+  it("points support questions at the forum instead", () => {
+    const kb = loadKb();
+    const a = (id: string) => kb.entries.find((e) => e.id === id)!.a;
+    expect(a("a2p-039")).toMatch(/post in the support forum and tag it Support/);
+    expect(a("app-046")).toMatch(/post in the support forum and tag it Support/);
+    expect(a("app-053")).toMatch(/^Post in the support forum and tag it Support\./);
+    expect(a("snd-069")).toMatch(/post in the support forum, tag it Support/);
+    expect(kb.entries.find((e) => e.id === "snd-069")?.q).toBe("Can I get a support call for a texting problem?");
+  });
+
   it("is byte-stable across loads", () => {
     expect(loadKb().block).toBe(loadKb().block);
   });

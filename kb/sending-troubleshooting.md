@@ -281,8 +281,8 @@ Q: What should I send support so they can fix my issue fast?
 A: Send three things up front: the error code and message status, at least three example messages from the last 24 hours (with which contacts and what time), and what you've already tried. That usually lets support fix it in one round.
 
 ### snd-069
-Q: Can I book a support call for a texting problem?
-A: Yes, using the booking link in the Support Calendar channel in the Discord, but make sure you've done the troubleshooting first: check that your A2P is approved, check that your wallet is funded, and look up the error code on the failed message. Support calls are for legitimate blockers that troubleshooting can't fix. If you book a call without having done the troubleshooting yourself, the call will be cancelled.
+Q: Can I get a support call for a texting problem?
+A: Support is for legitimate blockers that troubleshooting can't fix, so do the troubleshooting first: check that your A2P is approved, check that your wallet is funded, and look up the error code on the failed message. Then post in the support forum, tag it Support, and include the error code and what you've already tried, and the team will take it from there.
 
 ### snd-070
 Q: Is there a troubleshooting guide I can keep?

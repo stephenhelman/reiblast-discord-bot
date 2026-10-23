@@ -190,7 +190,7 @@ A: The contract fills in automatically from merge fields on the seller's contact
 
 ### app-046
 Q: What should I put in the contract fields, like closing date, earnest money, or inspection period?
-A: Ask in the community, or book a support call using the booking link in the Support Calendar channel. They can walk you through what to enter for your deal and your state.
+A: Ask in the community, or post in the support forum and tag it Support. The team can walk you through what to enter for your deal and your state.
 
 ### app-047
 Q: How do I send the contract to a seller?
@@ -218,7 +218,7 @@ A: It's a universal wholesaling purchase and sale agreement that works in most s
 
 ### app-053
 Q: My state needs a different contract. What do I do?
-A: Book a support appointment using the booking link in the Support Calendar channel in the Discord. Support will go through your contract with you and make sure your CRM has the fields it needs, so your contract can fill in automatically too.
+A: Post in the support forum and tag it Support. Support will go through your contract with you and make sure your CRM has the fields it needs, so your contract can fill in automatically too.
 
 ### app-054
 Q: Can I upload my own contract?

@@ -162,7 +162,7 @@ A: If your brand is rejected three times in a row, REIblast sends your CP575 let
 
 ### a2p-039
 Q: How do I contact REIblast support?
-A: Text or call 915-800-8266 (text is preferred), email support@mail.reiblast.app, or message on Discord. If you can't log in, say so in your message. To book a support call, use the booking link in the Support Calendar channel in the Discord. To get help in the Discord, post in the support forum and tag it Support. Private issues are handled in private threads in the Support channel.
+A: Text or call 915-800-8266 (text is preferred), email support@mail.reiblast.app, or message on Discord. If you can't log in, say so in your message. To get help in the Discord, post in the support forum and tag it Support. Private issues are handled in private threads in the Support channel.
 
 ### a2p-040
 Q: Is there a guide I can reference for A2P registration?
