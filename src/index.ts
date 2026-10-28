@@ -9,6 +9,7 @@ import { createLogger } from "./logger.js";
 import { createRoleGranter } from "./roles/grant.js";
 import { createRoleRevoker } from "./roles/revoke.js";
 import { createServerClient } from "./server-client/client.js";
+import { createFounderHandlers } from "./founder/claim.js";
 import { createVerifyFlow } from "./verify/flow.js";
 import { loadRules } from "./verify/rules.js";
 import { createSessionStore } from "./verify/session.js";
@@ -94,7 +95,8 @@ const qa = createQa(client, config, kb, alert);
 qa.registerListeners();
 qa.checkSetupOnReady();
 log.info("knowledge base loaded", { entries: kb.entries.length, hash: kb.hash });
-registerInteractionHandlers(client, { flow, setup, unlink, qa: qa.buttons });
+const founder = createFounderHandlers({ serverClient });
+registerInteractionHandlers(client, { flow, setup, unlink, founder, qa: qa.buttons });
 
 
 // HTTP first so the health check answers (503) while the gateway is still connecting.

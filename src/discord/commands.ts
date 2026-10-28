@@ -16,3 +16,11 @@ export const unlinkCommand = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setContexts(InteractionContextType.Guild)
   .addUserOption((o) => o.setName("user").setDescription("The Discord member to unlink").setRequired(true));
+
+export const POST_FOUNDER_CLAIM = "post-founder-claim";
+
+export const postFounderClaimCommand = new SlashCommandBuilder()
+  .setName(POST_FOUNDER_CLAIM)
+  .setDescription("Post the Founder's Offer claim button in this channel (administrators only)")
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setContexts(InteractionContextType.Guild);

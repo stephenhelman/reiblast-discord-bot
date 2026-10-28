@@ -4,7 +4,8 @@ import type { VerifyFlow } from "../verify/flow.js";
 import type { createSetupHandler } from "../verify/setup.js";
 import type { createUnlinkHandler } from "../verify/unlink.js";
 import { IDS } from "../verify/ids.js";
-import { SETUP_VERIFY, UNLINK } from "./commands.js";
+import { FOUNDER_CLAIM_ID, type createFounderHandlers } from "../founder/claim.js";
+import { POST_FOUNDER_CLAIM, SETUP_VERIFY, UNLINK } from "./commands.js";
 
 /** Routes interactions by static custom ID. The listener never lets an error escape. */
 export function registerInteractionHandlers(
@@ -13,6 +14,8 @@ export function registerInteractionHandlers(
     flow: VerifyFlow;
     setup: ReturnType<typeof createSetupHandler>;
     unlink: ReturnType<typeof createUnlinkHandler>;
+    /** Founder's Offer panel command + claim button. */
+    founder?: ReturnType<typeof createFounderHandlers>;
     /** Q&A buttons (qa:solved, qa:help, qa:to-private, qa:close). Each returns true if the click was theirs. */
     qa?: { answer: (i: ButtonInteraction) => Promise<boolean>; staff: (i: ButtonInteraction) => Promise<boolean> };
   },
@@ -25,7 +28,9 @@ export function registerInteractionHandlers(
       if (i.isChatInputCommand()) {
         if (i.commandName === SETUP_VERIFY) await setup(i);
         else if (i.commandName === UNLINK) await unlink(i);
+        else if (i.commandName === POST_FOUNDER_CLAIM) await deps.founder?.post(i);
       } else if (i.isButton()) {
+        if (deps.founder && i.customId === FOUNDER_CLAIM_ID) return deps.founder.claim(i);
         if (deps.qa && ((await deps.qa.answer(i)) || (await deps.qa.staff(i)))) return;
         switch (i.customId) {
           case IDS.buttonEmail:

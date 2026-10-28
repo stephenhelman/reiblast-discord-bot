@@ -38,9 +38,17 @@ export type UnlinkOutcome =
   | { result: "not_linked"; reason: "not_linked" }
   | { result: "error"; reason: ErrorReason };
 
+export type FounderLinkOutcome =
+  | { result: "ok"; reason: "link_issued"; url: string; message: string }
+  | { result: "not_verified"; reason: string; message: string }
+  | { result: "refused"; reason: "rate_limited" }
+  | { result: "error"; reason: ErrorReason };
+
 export interface ServerClient {
   verifyStart(discordUserId: string, identifier: Identifier): Promise<StartOutcome>;
   verifyConfirm(discordUserId: string, identifier: Identifier, code: string): Promise<ConfirmOutcome>;
   /** Staff unlink: clears the server-side link for this Discord account. No revoke is queued; the bot removes the role. */
   unlink(discordUserId: string): Promise<UnlinkOutcome>;
+  /** Founder's Offer: asks the server for the member's personal claim link. */
+  founderLink(discordUserId: string): Promise<FounderLinkOutcome>;
 }
